@@ -18,6 +18,17 @@ PastureWorkers replaces the traditional "worker walks to block, interacts, walks
 - **Budgeted block scanning** — `blocksPerScanTick` (default 512, range 64–4096) caps CPU cost per tick; large radii scale gracefully.
 - **Zero tick-lag focus** — the engine is designed to keep per-tick cost predictable and low; no entity movement, no chunk loading from wandering workers.
 
+### Cached Room Reachability (Flood-Fill)
+
+When `requireReachableSpace` is `true` (default), the scanner performs a **cached flood-fill** from the pasture block across ticks, expanding only through blocks without a collision box (air, plants, crops, water pass; walls, fences, solid blocks block). The result is a contiguous walkable region:
+
+- A closed perimeter wall **contains** the Pokémon — crops and chests outside the walls are never reached, even if within radius/height.
+- Internal pillars/obstacles are routed around.
+- The region is recomputed on the normal rescan cadence (`rescanCooldownTicks`, default 1200).
+- An unroofed/open farm is **not contained** — the region escapes into open air and effectively fills the whole search box.
+
+Set `requireReachableSpace: false` in the `general` config to disable the flood-fill and fall back to the full solid box scan.
+
 ## Comparison vs. Original Cobbleworkers
 
 | Feature | Cobbleworkers (original) | PastureWorkers (this mod) |
@@ -93,7 +104,8 @@ All commands are under `/pastureworkers` and require **operator permission level
     "blocksPerScanTick": 512,
     "searchRadius": 8,
     "searchHeight": 32,
-    "rescanCooldownTicks": 1200
+    "rescanCooldownTicks": 1200,
+    "requireReachableSpace": true
   },
   "interaction": {
     "shiftRightClickGui": true,
@@ -115,13 +127,19 @@ All commands are under `/pastureworkers` and require **operator permission level
 
 ### Groups explained
 
-- **general** — Core engine tuning: how often each worker attempts work (`workIntervalTicks`), how many blocks scanned per server tick (`blocksPerScanTick`), horizontal radius (`searchRadius`), vertical height (`searchHeight`), and cache rescan cooldown (`rescanCooldownTicks`).
+- **general** — Core engine tuning: how often each worker attempts work (`workIntervalTicks`), how many blocks scanned per server tick (`blocksPerScanTick`), horizontal radius (`searchRadius`), vertical height (`searchHeight`), cache rescan cooldown (`rescanCooldownTicks`), and whether to limit scanning to the contiguous walkable space connected to the pasture (`requireReachableSpace`, default `true`).
 - **interaction** — GUI behaviour: enable shift+right-click (`shiftRightClickGui`), per-player open cooldown in ticks (`guiOpenCooldownTicks`).
 - **Job groups** (`cropHarvest`, `cropIrrigation`, …, `honey`, `groundItemGather`) — Per-job toggles:
   - `enabled` — master switch for that job.
   - `type` — required Pokémon type (matches Cobblemon type names: `GRASS`, `WATER`, `ROCK`, `BUG`, `FAIRY`, `GHOST`, `STEEL`, `PSYCHIC`, `NONE`).
   - `species` — allow-list of species IDs (e.g., `"bulbasaur"`); default `["ditto"]` means any species with the correct type qualifies.
   - `honey` group adds `generateHoney` (boolean) and `honeyGenerationCooldownSeconds` (long).
+
+### Generic Storage Support
+
+Linked storage is detected generically: any block entity implementing `Inventory` or `InventoryProvider` is recognised (e.g. Sophisticated Storage, Iron Chests, vanilla chests/barrels/hoppers). No per-mod whitelist is needed.
+
+**Known limitation:** vanilla double-chest halves are **not merged** — each block entity is treated independently, so items may split across the two halves.
 
 All numeric values are **coerced** to their valid ranges on load/save.
 

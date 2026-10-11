@@ -9,10 +9,7 @@
  */
 package accieo.pastureworkers.core
 
-import net.minecraft.block.BarrelBlock
-import net.minecraft.block.Block
-import net.minecraft.block.ChestBlock
-import net.minecraft.block.entity.BarrelBlockEntity
+import net.minecraft.block.InventoryProvider
 import net.minecraft.entity.ItemEntity
 import net.minecraft.inventory.Inventory
 import net.minecraft.item.ItemStack
@@ -21,15 +18,18 @@ import net.minecraft.world.World
 
 object DepositUtils {
 
-    private val validInventoryBlocks: Set<Block> = setOf(
-        net.minecraft.block.Blocks.CHEST,
-        net.minecraft.block.Blocks.TRAPPED_CHEST,
-        net.minecraft.block.Blocks.BARREL
-    )
-
-    private fun isInventory(world: World, pos: BlockPos): Boolean {
-        val state = world.getBlockState(pos)
-        return state.block in validInventoryBlocks
+    /**
+     * Generic inventory detection: a position is storage when its block entity is an [Inventory]
+     * (barrels, hoppers, most modded storage such as Sophisticated Storage) or when the block/block
+     * entity is an [InventoryProvider] (vanilla-style blocks that expose a sided inventory).
+     */
+    // ponytail: generic Inventory/InventoryProvider detection covers standard modded storage;
+    // no per-mod plugin needed. Upgrade path = per-mod adapters only if a storage mod hides its inventory.
+    fun isInventory(world: World, pos: BlockPos): Boolean {
+        val blockEntity = world.getBlockEntity(pos)
+        if (blockEntity is Inventory) return true
+        if (blockEntity is InventoryProvider) return true
+        return world.getBlockState(pos).block is InventoryProvider
     }
 
     fun insertOrDrop(world: World, pasturePos: BlockPos, chests: Set<BlockPos>, drops: List<ItemStack>) {
@@ -64,14 +64,20 @@ object DepositUtils {
         }
     }
 
-    private fun getInventory(world: World, pos: BlockPos): Inventory? {
+    /**
+     * Resolves the [Inventory] backing a position: either the block entity itself when it is an
+     * [Inventory], or the inventory exposed by a block/block-entity [InventoryProvider]
+     * (Yarn 1.21.1 signature: `getInventory(BlockState, WorldAccess, BlockPos)`).
+     */
+    fun getInventory(world: World, pos: BlockPos): Inventory? {
+        val blockEntity = world.getBlockEntity(pos)
+        if (blockEntity is Inventory) return blockEntity
+
         val state = world.getBlockState(pos)
-        val block = state.block
-        return when {
-            block is ChestBlock -> ChestBlock.getInventory(block, state, world, pos, true)
-            block is BarrelBlock -> world.getBlockEntity(pos) as? BarrelBlockEntity
-            else -> world.getBlockEntity(pos) as? Inventory
-        }
+        val provider = (blockEntity as? InventoryProvider)
+            ?: (state.block as? InventoryProvider)
+            ?: return null
+        return provider.getInventory(state, world, pos)
     }
 
     fun insertStacks(inventory: Inventory, stacks: List<ItemStack>): List<ItemStack> {

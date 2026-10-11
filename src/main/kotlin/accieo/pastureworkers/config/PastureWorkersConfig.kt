@@ -52,6 +52,11 @@ object PastureWorkersConfig {
         var searchHeight: Int = 32
         /** Ticks before the block cache is scanned again. Range: 200..7200. */
         var rescanCooldownTicks: Int = 1200
+        /**
+         * When true, only the contiguous walkable space connected to the pasture is worked; closed
+         * perimeter walls stop the scan. When false, the full search box is scanned (legacy behaviour).
+         */
+        var requireReachableSpace: Boolean = true
 
         fun coerce() {
             workIntervalTicks = workIntervalTicks.coerceIn(20, 1200)
