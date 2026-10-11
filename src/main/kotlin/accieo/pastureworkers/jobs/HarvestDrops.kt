@@ -24,6 +24,9 @@ object HarvestDrops {
         state: BlockState,
         pokemonEntity: PokemonEntity
     ): List<ItemStack> {
-        return Block.getDroppedStacks(state, world, pos, null, pokemonEntity, ItemStack.EMPTY)
+        // Pass the real block entity (as vanilla Block.dropStacks does) so loot that reads the block
+        // entity (e.g. a modded harvestable added to a matching tag) resolves correctly. Blocks without
+        // one yield null, which is the previous behaviour for the vanilla/Cobblemon harvests.
+        return Block.getDroppedStacks(state, world, pos, world.getBlockEntity(pos), pokemonEntity, ItemStack.EMPTY)
     }
 }

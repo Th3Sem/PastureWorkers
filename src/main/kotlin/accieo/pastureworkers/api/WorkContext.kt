@@ -21,5 +21,7 @@ data class WorkContext(
     val pokemonEntity: PokemonEntity,
     val pokemon: Pokemon,
     val random: Random,
-    val efficiency: Float
+    val efficiency: Float,
+    /** Positions of the containers linked to this pasture, for jobs that need to withdraw items. */
+    val chests: Set<BlockPos>
 )

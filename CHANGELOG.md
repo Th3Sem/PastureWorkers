@@ -8,8 +8,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **Cached room reachability (flood-fill)** — scans only the contiguous walkable space connected to the pasture; closed perimeter walls contain workers. Config toggle `requireReachableSpace` (default `true`); passability via empty collision shape; region recomputed on `rescanCooldownTicks` cadence.
-- **Generic Inventory/InventoryProvider storage support** — linked storage detects any block entity implementing `Inventory` or `InventoryProvider` (Sophisticated Storage compatible, no whitelist). Vanilla double-chest halves are not merged (each half treated independently).
+- **Authoritative verified storage layer (Transfer API + snapshot-diff)** — storage resolved capability-first via Fabric Transfer API (`ItemStorage.SIDED`); deposits verify actual persisted delta via before/after snapshots, eliminating silent loss (e.g., Sophisticated Storage double chests); committed outer transactions when API available; ground-drop fallback for unprovable items.
+- **Region-based room model with order-independent perimeter-chest detection** — flood-fill splits walkable space into components seeded from passable face-neighbours (solid pasture never bridges); winner selected by facing → most resources → fewest boundary → largest; single adjacency rule commits detections in or adjacent to winning region.
+- **Unified job selection** — single `JobSelection` source of truth used by manager, GUI, and commands; GUI now lists all viable roles with valid targets per Pokémon.
+- **Config schema versioning + honey migration** — `schemaVersion` in config; on-disk version read before merge; v0→v1 migration rewrites legacy honey defaults only when raw type ∈ {null,"","NONE"} and raw species == ["ditto"].
+
+### Changed
+- **Storage detection order**: Transfer API first (covers vanilla + modded), then block-entity `Inventory`, then block/block-entity `InventoryProvider` — all guarded.
+- **VanillaInventoryTarget** writes back via `Inventory.setStack` (no in-place getter mutation); `TransferApiTarget` uses `Transaction.openOuter()`.
+- **DepositUtils** reduced to ground-drop helper only; `StorageDeposit` handles all deposit/withdraw logic with snapshot verification.
+- **AreaScanner** uses global detection maps + per-region stats + union-find; `commitWinner()` applies adjacency rule; `requireReachableSpace==false` box path unchanged.
+- **Commands.status / PastureGui / PastureWorkManager** route through `JobSelection.viableJobs()` / `isActive()`; `firstEligibleJob` removed.
+
+### Fixed
+- **Silent item loss with modded storage** — snapshot verification catches adapters that claim acceptance but persist nothing; such targets are marked suspect and skipped.
+- **Perimeter chest detection order-dependence** — adjacency rule ensures a chest in the wall is recognized when interior wins, regardless of scan order.
+- **GUI showing only first registry-matched job** — now shows all viable roles via `JobSelection`.
+- **Config migration clobbering user edits** — raw on-disk JSON read before merge; migration triggers only on untouched legacy signatures.
 
 ## [1.0.0] - 2026-10-11
 

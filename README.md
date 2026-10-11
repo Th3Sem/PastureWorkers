@@ -27,6 +27,8 @@ When `requireReachableSpace` is `true` (default), the scanner performs a **cache
 - The region is recomputed on the normal rescan cadence (`rescanCooldownTicks`, default 1200).
 - An unroofed/open farm is **not contained** — the region escapes into open air and effectively fills the whole search box.
 
+**Region-based room model:** Detection (storage + job targets) is accumulated globally across the search box. The flood-fill splits the walkable space into connected components (seeded from the pasture's passable face-neighbours; the solid pasture itself never bridges components). A single priority rule selects the primary region: the component in the pasture's facing direction, then the one with the most job-relevant resource cells, then fewest boundary cells, then largest. At commit time, a detection is kept iff it lies in or is adjacent to the winning region — so a chest embedded in the perimeter wall is still recognized when the interior region wins (order-independent).
+
 Set `requireReachableSpace: false` in the `general` config to disable the flood-fill and fall back to the full solid box scan.
 
 ## Comparison vs. Original Cobbleworkers
@@ -84,12 +86,14 @@ All commands are under `/pastureworkers` and require **operator permission level
 | Row | Slots | Content |
 |-----|-------|---------|
 | 0 (top) | 0–8 | **Slot 4**: Pasture Info (compass) — coordinates, radius, height, interval, chest count.<br>**Slot 8**: Toggle Radius Particles (lever) — click to show/hide scan outline for you only.<br>Others: gray glass panes (filler). |
-| 1 (middle) | 9–17 | **Worker slots** (up to 9) — each shows a player head with lore: species, level, assigned job, relevant stat value, efficiency %, bonus-drop chance %. |
+| 1 (middle) | 9–17 | **Worker slots** (up to 9) — each shows a player head with lore: species, level, **all viable roles** with valid targets, relevant stat value, efficiency %, bonus-drop chance %. |
 | 2 (bottom) | 18–26 | **Slot 18**: Reload Config (command block if op, barrier otherwise).<br>**Slot 20**: Watchdog Status (lime dye = active, red dye = hook not attached).<br>Others: filler. |
 
 ### Read-only / Anti-theft
 - **All slots are display-only**. The screen handler cancels every slot interaction (`onSlotClick`, `quickMove`, `canInsertIntoSlot` all return empty/no-op).
 - Items cannot be taken, moved, inserted, or shift-clicked. The GUI is a diagnostic/control surface, not a container.
+
+**Unified job selection:** The GUI now lists **all** roles a Pokémon can currently perform with valid targets (via the single `JobSelection` source of truth shared by the manager, GUI, and commands). This fixes cases where a Pokémon with multiple eligible jobs (e.g., Combee) would only show the first registry match instead of every viable role.
 
 ## Configuration
 
@@ -99,6 +103,7 @@ All commands are under `/pastureworkers` and require **operator permission level
 
 ```json
 {
+  "schemaVersion": 1,
   "general": {
     "workIntervalTicks": 200,
     "blocksPerScanTick": 512,
@@ -135,11 +140,15 @@ All commands are under `/pastureworkers` and require **operator permission level
   - `species` — allow-list of species IDs (e.g., `"bulbasaur"`); default `["ditto"]` means any species with the correct type qualifies.
   - `honey` group adds `generateHoney` (boolean) and `honeyGenerationCooldownSeconds` (long).
 
-### Generic Storage Support
+### Authoritative Storage Layer
 
-Linked storage is detected generically: any block entity implementing `Inventory` or `InventoryProvider` is recognised (e.g. Sophisticated Storage, Iron Chests, vanilla chests/barrels/hoppers). No per-mod whitelist is needed.
+PastureWorkers now resolves storage capability-first via the **Fabric Transfer API** (`ItemStorage.SIDED`), which auto-covers vanilla `Inventory`/`SidedInventory`/`InventoryProvider` and modded storage such as the Fabric Sophisticated Storage port, Tom's Simple Storage, and Storage Drawers. No new dependency is required — the Transfer API ships with Fabric API.
 
-**Known limitation:** vanilla double-chest halves are **not merged** — each block entity is treated independently, so items may split across the two halves.
+Deposits are **verified**: the mod snapshots the target's contents before and after each insert and trusts only the *actual* delta, not the inventory's success claim. This eliminates silent item loss (e.g., with Sophisticated Storage double chests). Anything not provably stored is ground-dropped at the pasture.
+
+When the Transfer API is available, mutations run inside a committed outer transaction so items are only considered stored once the transaction succeeds.
+
+**Config schema versioning:** The config file includes a `schemaVersion` field. On upgrade, a small migration rebuilds legacy honey defaults (type/species) only when they were never changed by the user — genuine user edits are always preserved.
 
 All numeric values are **coerced** to their valid ranges on load/save.
 

@@ -10,11 +10,12 @@
 package accieo.pastureworkers.core
 
 import accieo.pastureworkers.PastureWorkers
-import accieo.pastureworkers.api.JobRegistry
 import accieo.pastureworkers.api.JobType
 import accieo.pastureworkers.api.WorkContext
-import accieo.pastureworkers.api.WorkJob
 import accieo.pastureworkers.config.PastureWorkersConfig
+import accieo.pastureworkers.core.storage.StorageDeposit
+import accieo.pastureworkers.core.storage.StorageResolver
+import accieo.pastureworkers.core.work.JobSelection
 import com.cobblemon.mod.common.block.entity.PokemonPastureBlockEntity
 import com.cobblemon.mod.common.entity.PoseType
 import com.cobblemon.mod.common.entity.pokemon.PokemonEntity
@@ -83,8 +84,6 @@ object PastureWorkManager {
         }
     }
 
-    private data class Candidate(val job: WorkJob, val targets: MutableSet<BlockPos>)
-
     private fun tryWork(
         world: ServerWorld,
         pasturePos: BlockPos,
@@ -97,21 +96,7 @@ object PastureWorkManager {
         val general = PastureWorkersConfig.config.general
 
         // Collect every eligible job that currently has something to work on.
-        val candidates = ArrayList<Candidate>()
-        for (job in JobRegistry.jobs) {
-            val group = PastureWorkersConfig.groupFor(job.jobType)
-            if (!Eligibility.isEligible(pokemonEntity, group)) continue
-
-            val targets = if (job.needsBlockTargets) {
-                val set = session.cache[job.jobType] ?: continue
-                validateTargets(world, job, set)
-                if (set.isEmpty()) continue
-                set
-            } else {
-                mutableSetOf()
-            }
-            candidates.add(Candidate(job, targets))
-        }
+        val candidates = JobSelection.viableJobs(pokemonEntity, pokemon, session, world)
 
         if (candidates.isEmpty()) {
             session.nextWorkTimes[uuid] = world.time + general.workIntervalTicks / 4
@@ -128,7 +113,7 @@ object PastureWorkManager {
             val efficiency = EfficiencyCalculator.compute(pokemon, job.relevantStat)
             val interval = computeInterval(general.workIntervalTicks, efficiency)
             val actionPos = if (job.needsBlockTargets) candidate.targets.first() else pasturePos
-            val ctx = WorkContext(world, pasturePos, pokemonEntity, pokemon, random, efficiency)
+            val ctx = WorkContext(world, pasturePos, pokemonEntity, pokemon, random, efficiency, session.chests)
 
             val drops = try {
                 job.perform(ctx, candidate.targets)
@@ -148,7 +133,9 @@ object PastureWorkManager {
             }
 
             val finalDrops = applyBonusRoll(drops, efficiency, random)
-            DepositUtils.insertOrDrop(world, pasturePos, session.chests, finalDrops)
+            val targets = session.chests.mapNotNull { StorageResolver.resolve(world, it) }
+            val remainder = StorageDeposit.deposit(world, pasturePos, targets, finalDrops)
+            DepositUtils.dropAt(world, pasturePos, remainder)
 
             spawnWorkParticles(world, actionPos)
             session.nextWorkTimes[uuid] = world.time + interval
@@ -170,19 +157,18 @@ object PastureWorkManager {
             if (blockEntity !is PokemonPastureBlockEntity) {
                 iterator.remove()
                 PastureWorkersState.get(session.world).removePasture(session.pasturePos)
+                continue
             }
+            // Drop per-worker state for Pokemon no longer tethered here so a removed Pokemon does not
+            // leak an entry forever.
+            val tethered = PastureWorkersAccess.tetheredPokemon(blockEntity).mapTo(HashSet()) { it.uuid }
+            session.nextWorkTimes.keys.retainAll(tethered)
         }
     }
 
     private fun computeInterval(baseTicks: Int, efficiency: Float): Long {
         val multiplier = 1f - efficiency * 0.8f
         return (baseTicks * multiplier).toLong().coerceAtLeast(20L)
-    }
-
-    private fun validateTargets(world: ServerWorld, job: WorkJob, targets: MutableSet<BlockPos>) {
-        targets.removeAll { pos ->
-            !job.matches(world.getBlockState(pos), world, pos)
-        }
     }
 
     private fun applyBonusRoll(drops: List<ItemStack>, efficiency: Float, random: Random): List<ItemStack> {

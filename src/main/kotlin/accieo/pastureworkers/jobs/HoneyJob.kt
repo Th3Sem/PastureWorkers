@@ -13,61 +13,89 @@ import accieo.pastureworkers.api.JobType
 import accieo.pastureworkers.api.WorkContext
 import accieo.pastureworkers.api.WorkJob
 import accieo.pastureworkers.config.PastureWorkersConfig
-import accieo.pastureworkers.core.LocationKey
+import accieo.pastureworkers.core.storage.StorageDeposit
+import accieo.pastureworkers.core.storage.StorageResolver
 import com.cobblemon.mod.common.api.pokemon.stats.Stats
 import net.minecraft.block.BeehiveBlock
 import net.minecraft.block.Block
+import net.minecraft.block.BlockState
 import net.minecraft.item.ItemStack
 import net.minecraft.item.Items
+import net.minecraft.registry.tag.BlockTags
 import net.minecraft.util.math.BlockPos
 import net.minecraft.world.World
-import java.util.concurrent.ConcurrentHashMap
 
+/**
+ * Thematic virtual honey production. Beehives/nests and flowers act as persistent catalysts: while a
+ * hive is present the worker produces honeycomb, while a flower is present it produces honey bottles.
+ * The job never consumes its catalysts (except the optional [PastureWorkersConfig.HoneyJobGroup.consumeFullHive]
+ * bonus), so the manager's work interval is the only cooldown.
+ */
 object HoneyJob : WorkJob {
 
     override val jobType = JobType.HONEY_COLLECT
     override val relevantStat = Stats.SPEED
     override val needsBlockTargets = true
 
-    private val lastGenerationTime = ConcurrentHashMap<LocationKey, Long>()
-
-    override fun matches(state: net.minecraft.block.BlockState, world: World, pos: BlockPos): Boolean {
-        if (state.block !is BeehiveBlock) return false
-        val level = state.get(BeehiveBlock.HONEY_LEVEL)
-        return level == BeehiveBlock.FULL_HONEY_LEVEL ||
-                (PastureWorkersConfig.config.honey.generateHoney && level < BeehiveBlock.FULL_HONEY_LEVEL)
+    override fun matches(state: BlockState, world: World, pos: BlockPos): Boolean {
+        return state.block is BeehiveBlock || state.isIn(BlockTags.FLOWERS)
     }
 
     override fun perform(ctx: WorkContext, targets: MutableSet<BlockPos>): List<ItemStack> {
-        val pos = targets.firstOrNull() ?: return emptyList()
+        val config = PastureWorkersConfig.config.honey
 
-        val state = ctx.world.getBlockState(pos)
-        if (!matches(state, ctx.world, pos)) {
-            targets.remove(pos)
-            return emptyList()
+        var hive = false
+        var flower = false
+        var fullHivePos: BlockPos? = null
+
+        // Catalysts are persistent: they are inspected, never removed.
+        for (pos in targets) {
+            val state = ctx.world.getBlockState(pos)
+            if (state.block is BeehiveBlock) {
+                hive = true
+                if (config.consumeFullHive &&
+                    state.get(BeehiveBlock.HONEY_LEVEL) == BeehiveBlock.FULL_HONEY_LEVEL
+                ) {
+                    fullHivePos = pos
+                }
+            } else if (state.isIn(BlockTags.FLOWERS)) {
+                flower = true
+            }
         }
 
-        val level = state.get(BeehiveBlock.HONEY_LEVEL)
-        if (level == BeehiveBlock.FULL_HONEY_LEVEL) {
-            targets.remove(pos)
-            ctx.world.setBlockState(pos, state.with(BeehiveBlock.HONEY_LEVEL, 0), Block.NOTIFY_LISTENERS)
-            return listOf(ItemStack(Items.HONEYCOMB, 3))
+        if (!hive && !flower) return emptyList()
+
+        val drops = mutableListOf<ItemStack>()
+
+        if (hive && config.honeycombPerHarvest > 0) {
+            drops.add(ItemStack(Items.HONEYCOMB, config.honeycombPerHarvest))
         }
 
-        if (!PastureWorkersConfig.config.honey.generateHoney) {
-            targets.remove(pos)
-            return emptyList()
+        if (flower && config.honeyBottlesPerHarvest > 0) {
+            val hasBottle = !config.requireEmptyBottle || run {
+                val targets = ctx.chests.mapNotNull { StorageResolver.resolve(ctx.world, it) }
+                StorageDeposit.withdraw(ctx.world, targets, Items.GLASS_BOTTLE, 1) > 0
+            }
+            if (hasBottle) {
+                drops.add(ItemStack(Items.HONEY_BOTTLE, config.honeyBottlesPerHarvest))
+            }
         }
 
-        val cooldownTicks = PastureWorkersConfig.config.honey.honeyGenerationCooldownSeconds * 20L
-        val key = LocationKey(ctx.world.registryKey, pos)
-        val lastTime = lastGenerationTime[key] ?: 0L
-        if (ctx.world.time - lastTime < cooldownTicks) {
-            return emptyList()
+        // The only hive-mutating path, and opt-in: drain a full hive for one bonus honeycomb.
+        if (fullHivePos != null) {
+            val state = ctx.world.getBlockState(fullHivePos)
+            if (state.block is BeehiveBlock &&
+                state.get(BeehiveBlock.HONEY_LEVEL) == BeehiveBlock.FULL_HONEY_LEVEL
+            ) {
+                ctx.world.setBlockState(
+                    fullHivePos,
+                    state.with(BeehiveBlock.HONEY_LEVEL, 0),
+                    Block.NOTIFY_LISTENERS
+                )
+                drops.add(ItemStack(Items.HONEYCOMB, 1))
+            }
         }
 
-        lastGenerationTime[key] = ctx.world.time
-        ctx.world.setBlockState(pos, state.with(BeehiveBlock.HONEY_LEVEL, level + 1), Block.NOTIFY_LISTENERS)
-        return emptyList()
+        return drops
     }
 }

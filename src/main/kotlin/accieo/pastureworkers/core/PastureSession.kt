@@ -22,6 +22,12 @@ class PastureSession(
 ) {
     val cache: MutableMap<JobType, MutableSet<BlockPos>> = ConcurrentHashMap()
     val chests: MutableSet<BlockPos> = ConcurrentHashMap.newKeySet()
+
+    /**
+     * Cells on the boundary of the reachable region discovered by the flood-fill (reachable cells
+     * with a non-passable or out-of-bounds face-neighbour). Empty while reachability is disabled.
+     */
+    val reachableBoundary: MutableSet<BlockPos> = ConcurrentHashMap.newKeySet()
     val nextWorkTimes: MutableMap<UUID, Long> = stateData.nextWorkTimes
     var lastScanCompleteTime: Long
         get() = stateData.lastScanCompleteTime

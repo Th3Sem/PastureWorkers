@@ -11,8 +11,12 @@ package accieo.pastureworkers.config
 
 import accieo.pastureworkers.api.JobType
 import com.google.gson.GsonBuilder
+import com.google.gson.JsonObject
 import net.fabricmc.loader.api.FabricLoader
 import java.nio.file.Files
+
+/** Current config schema version. Bump when a default change needs a migration. */
+const val CURRENT_SCHEMA = 1
 
 object PastureWorkersConfig {
 
@@ -27,13 +31,45 @@ object PastureWorkersConfig {
     fun load() {
         val path = configPath
         Files.createDirectories(path.parent)
-        config = if (Files.exists(path)) {
+        if (Files.exists(path)) {
             val json = Files.readString(path)
-            gson.fromJson(json, PastureWorkersConfigData::class.java).apply { coerce() }
+
+            // Read the raw on-disk JSON BEFORE merging. deepMerge backfills schemaVersion from the
+            // defaults, which would hide a legacy file's real (pre-migration) version.
+            val raw = runCatching { gson.fromJson(json, JsonObject::class.java) }.getOrNull()
+
+            // Gson ignores Kotlin field initializers when deserializing, so a key missing from a
+            // config file written by an older build would land as the JVM default (false / 0) instead
+            // of the intended Kotlin default. Deep-merge the on-disk JSON over a freshly serialized
+            // default so absent keys keep their defaults while present keys still win.
+            val defaults = gson.toJsonTree(PastureWorkersConfigData()).asJsonObject
+            val merged = deepMerge(defaults, raw)
+
+            val onDiskVersion = raw?.get("schemaVersion")?.asInt ?: 0
+            config = gson.fromJson(merged, PastureWorkersConfigData::class.java)
+            ConfigMigrations.apply(config, raw, onDiskVersion)
+            config.coerce()
         } else {
-            PastureWorkersConfigData().apply { coerce() }
+            config = PastureWorkersConfigData().apply { coerce() }
         }
         save()
+    }
+
+    /** Recursively overlays [override] onto [base]; missing keys keep [base]'s value. */
+    private fun deepMerge(base: JsonObject, override: JsonObject?): JsonObject {
+        if (override == null) return base
+        val result = JsonObject()
+        for (key in base.keySet() + override.keySet()) {
+            val baseValue = base.get(key)
+            val overrideValue = override.get(key)
+            when {
+                baseValue is JsonObject && overrideValue is JsonObject ->
+                    result.add(key, deepMerge(baseValue, overrideValue))
+                overrideValue != null && !overrideValue.isJsonNull -> result.add(key, overrideValue)
+                baseValue != null -> result.add(key, baseValue)
+            }
+        }
+        return result
     }
 
     fun save() {
@@ -77,10 +113,19 @@ object PastureWorkersConfig {
     }
 
     class HoneyJobGroup : JobGroup() {
-        /** Whether honey is generated over time while a valid worker is tethered. */
-        var generateHoney: Boolean = true
-        /** Seconds between honey generation ticks. */
-        var honeyGenerationCooldownSeconds: Long = 60
+        /** Honeycomb produced per work cycle while a beehive/nest catalyst is present. Coerced to >= 0. */
+        var honeycombPerHarvest: Int = 1
+        /** Honey bottles produced per work cycle while a flower catalyst is present. Coerced to >= 0. */
+        var honeyBottlesPerHarvest: Int = 1
+        /** When true, honey-bottle production withdraws one GLASS_BOTTLE from a linked container. */
+        var requireEmptyBottle: Boolean = true
+        /** When true, a matched full hive is also drained to 0 for one bonus honeycomb. */
+        var consumeFullHive: Boolean = false
+
+        fun coerce() {
+            honeycombPerHarvest = honeycombPerHarvest.coerceAtLeast(0)
+            honeyBottlesPerHarvest = honeyBottlesPerHarvest.coerceAtLeast(0)
+        }
     }
 
     class InteractionGroup {
@@ -95,6 +140,8 @@ object PastureWorkersConfig {
     }
 
     class PastureWorkersConfigData {
+        /** On-disk schema version, used to run the right migrations on load. */
+        var schemaVersion: Int = CURRENT_SCHEMA
         var general: GeneralGroup = GeneralGroup()
         var interaction: InteractionGroup = InteractionGroup()
         var cropHarvest: JobGroup = JobGroup().apply { type = "GRASS" }
@@ -106,12 +153,17 @@ object PastureWorkersConfig {
         var mintHarvest: JobGroup = JobGroup().apply { type = "FAIRY" }
         var netherwartHarvest: JobGroup = JobGroup().apply { type = "GHOST" }
         var tumblestoneHarvest: JobGroup = JobGroup().apply { type = "STEEL" }
-        var honey: HoneyJobGroup = HoneyJobGroup().apply { type = "NONE" }
+        var honey: HoneyJobGroup = HoneyJobGroup().apply {
+            type = "BUG"
+            species = mutableListOf("combee", "vespiquen", "beedrill", "teddiursa", "ursaring", "ribombee")
+        }
         var groundItemGather: JobGroup = JobGroup().apply { type = "PSYCHIC" }
 
         fun coerce() {
+            schemaVersion = CURRENT_SCHEMA
             general.coerce()
             interaction.coerce()
+            honey.coerce()
         }
     }
 
