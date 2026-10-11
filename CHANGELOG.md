@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Region-based room model with order-independent perimeter-chest detection** — flood-fill splits walkable space into components seeded from passable face-neighbours (solid pasture never bridges); winner selected by facing → most resources → fewest boundary → largest; single adjacency rule commits detections in or adjacent to winning region.
 - **Unified job selection** — single `JobSelection` source of truth used by manager, GUI, and commands; GUI now lists all viable roles with valid targets per Pokémon.
 - **Config schema versioning + honey migration** — `schemaVersion` in config; on-disk version read before merge; v0→v1 migration rewrites legacy honey defaults only when raw type ∈ {null,"","NONE"} and raw species == ["ditto"].
+- **Independent honey production toggles** — `hiveProducesHoneycomb` and `flowerProducesHoneyBottles` make the beehive and flower honey modes independently enable/disable-able; `honeycombPerHarvest` / `honeyBottlesPerHarvest` control output counts; `requireEmptyBottle` gates bottle withdrawal; `consumeFullHive` adds optional full-hive drain bonus.
 
 ### Changed
 - **Storage detection order**: Transfer API first (covers vanilla + modded), then block-entity `Inventory`, then block/block-entity `InventoryProvider` — all guarded.

@@ -28,8 +28,11 @@ import net.minecraft.world.World
 /**
  * Thematic virtual honey production. Beehives/nests and flowers act as persistent catalysts: while a
  * hive is present the worker produces honeycomb, while a flower is present it produces honey bottles.
- * The job never consumes its catalysts (except the optional [PastureWorkersConfig.HoneyJobGroup.consumeFullHive]
- * bonus), so the manager's work interval is the only cooldown.
+ * Neither a full hive nor a full nest is required for honeycomb. Each branch is gated by its own
+ * toggle ([PastureWorkersConfig.HoneyJobGroup.hiveProducesHoneycomb] and
+ * [PastureWorkersConfig.HoneyJobGroup.flowerProducesHoneyBottles]). The job never consumes its
+ * catalysts (except the optional [PastureWorkersConfig.HoneyJobGroup.consumeFullHive] bonus), so the
+ * manager's work interval is the only cooldown.
  */
 object HoneyJob : WorkJob {
 
@@ -67,11 +70,11 @@ object HoneyJob : WorkJob {
 
         val drops = mutableListOf<ItemStack>()
 
-        if (hive && config.honeycombPerHarvest > 0) {
+        if (hive && config.hiveProducesHoneycomb && config.honeycombPerHarvest > 0) {
             drops.add(ItemStack(Items.HONEYCOMB, config.honeycombPerHarvest))
         }
 
-        if (flower && config.honeyBottlesPerHarvest > 0) {
+        if (flower && config.flowerProducesHoneyBottles && config.honeyBottlesPerHarvest > 0) {
             val hasBottle = !config.requireEmptyBottle || run {
                 val targets = ctx.chests.mapNotNull { StorageResolver.resolve(ctx.world, it) }
                 StorageDeposit.withdraw(ctx.world, targets, Items.GLASS_BOTTLE, 1) > 0

@@ -64,6 +64,17 @@ Each job has a required Pokémon type and an efficiency stat that scales bonus-d
 
 Jobs run in **round-robin** order per worker per tick. A worker picks the first eligible job from the registry.
 
+### Honey Production
+
+The `HONEY_COLLECT` job ("Honey Harvester") uses beehives/nests and flowers as **persistent catalysts** in the reachable area (never consumed, except the optional `consumeFullHive` bonus):
+
+- **Beehive mode** (`hiveProducesHoneycomb`, default `true`): when a beehive or bee nest is within the reachable region, the worker produces honeycomb each work cycle. The hive does **not** need to be full. `honeycombPerHarvest` (default `1`, `0` disables) sets the output count.
+- **Flower mode** (`flowerProducesHoneyBottles`, default `true`): when flowers (`#minecraft:flowers`) are within the reachable region, the worker fills a honey bottle — it withdraws one empty `GLASS_BOTTLE` from linked storage and deposits the produced `HONEY_BOTTLE` back into linked storage. `honeyBottlesPerHarvest` (default `1`, `0` disables) sets the output count. `requireEmptyBottle` (default `true`) controls whether a bottle must be available.
+- **Optional bonus** (`consumeFullHive`, default `false`): if a matching hive is full (`honey_level == 5`), it is drained to `0` for one extra honeycomb.
+- The honey group is eligibility-configured like any other job: `enabled`, `type` (default `BUG`), `species` (default `[combee, vespiquen, beedrill, teddiursa, ursaring, ribombee]`).
+
+Both modes are independent — you can enable/disable each via its toggle.
+
 ## Commands
 
 All commands are under `/pastureworkers` and require **operator permission level 2**, except `/gui`.
@@ -125,7 +136,7 @@ All commands are under `/pastureworkers` and require **operator permission level
   "mintHarvest": { "enabled": true, "type": "FAIRY", "species": ["ditto"] },
   "netherwartHarvest": { "enabled": true, "type": "GHOST", "species": ["ditto"] },
   "tumblestoneHarvest": { "enabled": true, "type": "STEEL", "species": ["ditto"] },
-  "honey": { "enabled": true, "type": "NONE", "species": ["ditto"], "generateHoney": true, "honeyGenerationCooldownSeconds": 60 },
+  "honey": { "enabled": true, "type": "BUG", "species": ["combee", "vespiquen", "beedrill", "teddiursa", "ursaring", "ribombee"], "hiveProducesHoneycomb": true, "honeycombPerHarvest": 1, "flowerProducesHoneyBottles": true, "honeyBottlesPerHarvest": 1, "requireEmptyBottle": true, "consumeFullHive": false },
   "groundItemGather": { "enabled": true, "type": "PSYCHIC", "species": ["ditto"] }
 }
 ```
@@ -138,7 +149,13 @@ All commands are under `/pastureworkers` and require **operator permission level
   - `enabled` — master switch for that job.
   - `type` — required Pokémon type (matches Cobblemon type names: `GRASS`, `WATER`, `ROCK`, `BUG`, `FAIRY`, `GHOST`, `STEEL`, `PSYCHIC`, `NONE`).
   - `species` — allow-list of species IDs (e.g., `"bulbasaur"`); default `["ditto"]` means any species with the correct type qualifies.
-  - `honey` group adds `generateHoney` (boolean) and `honeyGenerationCooldownSeconds` (long).
+  - `honey` group adds:
+    - `hiveProducesHoneycomb` (Boolean, default `true`) — enable honeycomb production when a beehive/nest is in the reachable area.
+    - `honeycombPerHarvest` (Int, default `1`) — honeycomb count per work cycle; `0` disables.
+    - `flowerProducesHoneyBottles` (Boolean, default `true`) — enable honey bottle production when flowers are in the reachable area.
+    - `honeyBottlesPerHarvest` (Int, default `1`) — honey bottle count per work cycle; `0` disables.
+    - `requireEmptyBottle` (Boolean, default `true`) — when `true`, a `GLASS_BOTTLE` must be available in linked storage for honey bottles; `false` produces bottles without consuming one.
+    - `consumeFullHive` (Boolean, default `false`) — if a matching hive is full (`honey_level == 5`), drain it to `0` for one bonus honeycomb.
 
 ### Authoritative Storage Layer
 

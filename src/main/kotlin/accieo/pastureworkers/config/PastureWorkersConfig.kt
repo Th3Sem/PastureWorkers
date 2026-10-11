@@ -121,6 +121,16 @@ object PastureWorkersConfig {
         var requireEmptyBottle: Boolean = true
         /** When true, a matched full hive is also drained to 0 for one bonus honeycomb. */
         var consumeFullHive: Boolean = false
+        /**
+         * When true and a beehive or bee nest is within the reachable area, the worker produces
+         * honeycomb each cycle. The hive does not need to be full.
+         */
+        var hiveProducesHoneycomb: Boolean = true
+        /**
+         * When true and flowers are within the reachable area, the worker fills a honey bottle,
+         * consuming one empty glass bottle from linked storage when requireEmptyBottle is true.
+         */
+        var flowerProducesHoneyBottles: Boolean = true
 
         fun coerce() {
             honeycombPerHarvest = honeycombPerHarvest.coerceAtLeast(0)
