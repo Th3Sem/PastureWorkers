@@ -1,0 +1,15 @@
+pluginManagement {
+    repositories {
+        maven { url = "https://maven.fabricmc.net/" }
+        gradlePluginPortal()
+    }
+}
+
+plugins {
+    // Loom generation compatible with MC 1.21.1 on Java 21.
+    // Loom 1.12+ (incl. the previously pinned 1.18.4) requires a Java 25 runtime.
+    id 'fabric-loom' version '1.10-SNAPSHOT' apply false
+    id 'org.jetbrains.kotlin.jvm' version '2.2.20' apply false
+}
+
+rootProject.name = 'pastureworkers'

@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "id": "pastureworkers",
+  "version": "${version}",
+  "name": "PastureWorkers",
+  "description": "Tethered Cobblemon Pokémon perform pasture jobs without moving.",
+  "authors": [
+    "Accieo"
+  ],
+  "license": "MPL-2.0",
+  "environment": "*",
+  "entrypoints": {
+    "main": [
+      {
+        "value": "accieo.pastureworkers.PastureWorkersInitializer",
+        "adapter": "kotlin"
+      }
+    ]
+  },
+  "mixins": [
+    "pastureworkers.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=0.19.5",
+    "fabric-api": "*",
+    "fabric-language-kotlin": "*",
+    "cobblemon": ">=1.8.0",
+    "java": ">=21"
+  }
+}

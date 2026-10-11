@@ -1,0 +1,70 @@
+plugins {
+    id 'fabric-loom'
+    id 'org.jetbrains.kotlin.jvm'
+    id 'maven-publish'
+}
+
+version = project.mod_version
+group = project.maven_group
+
+base {
+    archivesName = project.archives_base_name
+}
+
+repositories {
+    // Cobblemon primary repository
+    maven {
+        name = "Cobblemon"
+        url = "https://artefacts.cobblemon.com/releases"
+    }
+    // Cobblemon fallback repository
+    maven {
+        name = "Cobblemon Fallback"
+        url = "https://maven.impactdev.net/repository/development/"
+    }
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${project.minecraft_version}"
+    mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
+
+    modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+    modImplementation "net.fabricmc:fabric-language-kotlin:${project.flk_version}"
+
+    modImplementation "com.cobblemon:fabric:${project.cobblemon_version}"
+}
+
+processResources {
+    inputs.property "version", project.version
+
+    filesMatching("fabric.mod.json") {
+        expand "version": project.version
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    it.options.release = 21
+}
+
+kotlin {
+    jvmToolchain(21)
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+    withSourcesJar()
+}
+
+publishing {
+    publications {
+        mavenJava(MavenPublication) {
+            from components.java
+        }
+    }
+    repositories {
+        // Add repositories to publish to here.
+    }
+}
