@@ -102,8 +102,13 @@ object Commands {
             } else {
                 JobSelection.viableJobs(entity, pokemon, session, player.serverWorld)
                     .joinToString { candidate ->
-                        val eff = EfficiencyCalculator.compute(pokemon, candidate.job.relevantStat)
-                        "${candidate.job.jobType.name} ${(eff * 100).roundToInt()}%"
+                        val job = candidate.job
+                        val eff = EfficiencyCalculator.compute(
+                            pokemon,
+                            PastureWorkersConfig.statFor(job),
+                            PastureWorkersConfig.groupFor(job.jobType).efficiencyMultiplier
+                        )
+                        "${job.jobType.name} ${(eff * 100).roundToInt()}%"
                     }
                     .ifEmpty { "none" }
             }

@@ -94,12 +94,13 @@ object PastureWorkManager {
         val uuid = pokemon.uuid
         val random = world.random
         val general = PastureWorkersConfig.config.general
+        val scaling = PastureWorkersConfig.config.scaling
 
         // Collect every eligible job that currently has something to work on.
         val candidates = JobSelection.viableJobs(pokemonEntity, pokemon, session, world)
 
         if (candidates.isEmpty()) {
-            session.nextWorkTimes[uuid] = world.time + general.workIntervalTicks / 4
+            session.nextWorkTimes[uuid] = world.time + general.workIntervalTicks / scaling.idleRetryDivisor
             return false
         }
 
@@ -110,8 +111,9 @@ object PastureWorkManager {
         for (offset in candidates.indices) {
             val candidate = candidates[(start + offset) % candidates.size]
             val job = candidate.job
-            val efficiency = EfficiencyCalculator.compute(pokemon, job.relevantStat)
-            val interval = computeInterval(general.workIntervalTicks, efficiency)
+            val group = PastureWorkersConfig.groupFor(job.jobType)
+            val efficiency = EfficiencyCalculator.compute(pokemon, PastureWorkersConfig.statFor(job), group.efficiencyMultiplier)
+            val interval = EfficiencyCalculator.intervalTicks(general.workIntervalTicks, efficiency)
             val actionPos = if (job.needsBlockTargets) candidate.targets.first() else pasturePos
             val ctx = WorkContext(world, pasturePos, pokemonEntity, pokemon, random, efficiency, session.chests)
 
@@ -142,7 +144,7 @@ object PastureWorkManager {
             return true
         }
 
-        session.nextWorkTimes[uuid] = world.time + general.workIntervalTicks / 4
+        session.nextWorkTimes[uuid] = world.time + general.workIntervalTicks / scaling.idleRetryDivisor
         return false
     }
 
@@ -166,13 +168,9 @@ object PastureWorkManager {
         }
     }
 
-    private fun computeInterval(baseTicks: Int, efficiency: Float): Long {
-        val multiplier = 1f - efficiency * 0.8f
-        return (baseTicks * multiplier).toLong().coerceAtLeast(20L)
-    }
-
     private fun applyBonusRoll(drops: List<ItemStack>, efficiency: Float, random: Random): List<ItemStack> {
-        if (drops.isEmpty() || random.nextFloat() >= efficiency) return drops
+        val chance = minOf(efficiency, PastureWorkersConfig.config.scaling.maxExtraYieldChance)
+        if (drops.isEmpty() || random.nextFloat() >= chance) return drops
         val eligible = drops.filter { !it.isEmpty }
         if (eligible.isEmpty()) return drops
         val chosen = eligible[random.nextInt(eligible.size)]

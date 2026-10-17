@@ -51,15 +51,15 @@ Each job has a required Pokémon type and an efficiency stat that scales bonus-d
 | Job Type | Required Type | Relevant Stat | Config Group |
 |----------|---------------|---------------|--------------|
 | Crop Harvest | GRASS | Attack | `cropHarvest` |
-| Crop Irrigation | WATER | Special Attack | `cropIrrigation` |
+| Crop Irrigation | WATER | Defence | `cropIrrigation` |
 | Amethyst Harvest | ROCK | Attack | `amethystHarvest` |
 | Gem Harvest | ROCK | Attack | `gemHarvest` |
 | Apricorn Harvest | BUG | Attack | `apricornHarvest` |
-| Berry Harvest | GRASS | Attack | `berryHarvest` |
+| Berry Harvest | GRASS | Special Attack | `berryHarvest` |
 | Mint Harvest | FAIRY | Special Attack | `mintHarvest` |
-| Nether Wart Harvest | GHOST | Special Attack | `netherwartHarvest` |
+| Nether Wart Harvest | GHOST | Attack | `netherwartHarvest` |
 | Tumblestone Harvest | STEEL | Attack | `tumblestoneHarvest` |
-| Honey Collect | NONE | — (time-based) | `honey` |
+| Honey Collect | BUG | Speed | `honey` |
 | Ground Item Gather | PSYCHIC | Speed | `groundItemGather` |
 
 Jobs run in **round-robin** order per worker per tick. A worker picks the first eligible job from the registry.
@@ -108,54 +108,98 @@ All commands are under `/pastureworkers` and require **operator permission level
 
 ## Configuration
 
-**File location**: `config/pastureworkers.json` (created on first run).
+PastureWorkers is configured through a single JSON file. **JSON has no comments**, so the explanations below are the documentation for every key.
 
-### Example `pastureworkers.json` (all keys with defaults)
+**File location**: `config/pastureworkers.json` in the server/instance config folder (created on first run).
+
+**Applying changes**: edit the file, then run `/pastureworkers reload` (op level 2) to reload it live, or restart the server. All numeric values are coerced to their valid ranges on load/save; `schemaVersion` (current `2`) is managed by the mod — do not edit it.
+
+### `general`
+
+| Key | Default | Allowed range | Meaning |
+|-----|---------|---------------|---------|
+| `workIntervalTicks` | `200` | 20–1200 | Base ticks between a worker's actions. |
+| `blocksPerScanTick` | `512` | 64–4096 | Blocks scanned per server tick. |
+| `searchRadius` | `8` | 1–32 | Horizontal blocks searched around the pasture. |
+| `searchHeight` | `32` | 1–256 | Vertical blocks searched around the pasture. |
+| `rescanCooldownTicks` | `1200` | 200–7200 | Ticks before the block cache is rescanned. |
+| `requireReachableSpace` | `true` | `true`/`false` | Only work the walkable space connected to the pasture; `false` scans the full box (legacy). |
+
+### `interaction`
+
+| Key | Default | Allowed range | Meaning |
+|-----|---------|---------------|---------|
+| `shiftRightClickGui` | `true` | `true`/`false` | Shift + right-click with an empty hand opens the GUI. |
+| `guiOpenCooldownTicks` | `10` | ≥ 0 | Minimum ticks between GUI opens by the same player. |
+
+### `scaling`
+
+All efficiency/timing formulas read from this group.
+
+| Key | Default | Allowed range | Meaning |
+|-----|---------|---------------|---------|
+| `levelCap` | `100` | 1–1000 | Level at which the level bonus stops growing. |
+| `levelWeight` | `0.20` | 0–1 | Max efficiency contributed by level. |
+| `statBaseline` | `70` | — | Stat value that gives zero stat bonus. |
+| `statDivisor` | `500` | ≥ 1 | How fast the stat bonus grows above/below the baseline. |
+| `statBonusCap` | `0.10` | 0–1 | Max ± bonus from the stat. |
+| `natureBonus` | `0.10` | 0–1 | Bonus for a nature boosting the job stat; the same amount is subtracted for a nature lowering it. |
+| `efficiencyCap` | `0.5` | 0–1 | Hard upper limit of efficiency. |
+| `intervalReduction` | `0.8` | 0–1 | How much efficiency shortens the action interval (`interval = workIntervalTicks * (1 - efficiency * intervalReduction)`). |
+| `minIntervalTicks` | `20` | 1–1200 | The interval never drops below this. |
+| `idleRetryDivisor` | `4` | ≥ 1 | When a worker has nothing to do it retries after `workIntervalTicks / idleRetryDivisor` ticks. |
+| `maxExtraYieldChance` | `0.5` | 0–1 | Chance of an extra copy of one drop equals `min(efficiency, this value)`. |
+
+### Job groups
+
+`cropHarvest`, `cropIrrigation`, `amethystHarvest`, `gemHarvest`, `apricornHarvest`, `berryHarvest`, `mintHarvest`, `netherwartHarvest`, `tumblestoneHarvest`, `honey`, `groundItemGather` share these keys:
+
+| Key | Default | Allowed range | Meaning |
+|-----|---------|---------------|---------|
+| `enabled` | `true` | `true`/`false` | Master switch; `false` removes the job everywhere. |
+| `type` | per job (below) | type name, e.g. `GRASS`, `WATER` | Required Pokémon type; blank = no type match. A Pokémon is eligible if its type **or** its species matches. |
+| `species` | `["ditto"]` | list of lowercase showdown names | Eligible species, e.g. `"ditto"`. |
+| `stat` | per job (below) | `HP`, `ATTACK`, `DEFENCE`, `SPECIAL_ATTACK`, `SPECIAL_DEFENCE`, `SPEED` | Cobblemon stat used for scaling; blank = the job default. Unknown names fall back to the job default with one warning in the log. |
+| `efficiencyMultiplier` | `1.0` | ≥ 0 | Multiplies the efficiency of this job only; the result is still capped by `efficiencyCap`. |
+
+Per-job defaults for `type` / `stat`:
+
+| Group | `type` | `stat` |
+|-------|--------|--------|
+| `cropHarvest` | `GRASS` | `ATTACK` |
+| `cropIrrigation` | `WATER` | `DEFENCE` |
+| `amethystHarvest` | `ROCK` | `ATTACK` |
+| `gemHarvest` | `ROCK` | `ATTACK` |
+| `apricornHarvest` | `BUG` | `ATTACK` |
+| `berryHarvest` | `GRASS` | `SPECIAL_ATTACK` |
+| `mintHarvest` | `FAIRY` | `SPECIAL_ATTACK` |
+| `netherwartHarvest` | `GHOST` | `ATTACK` |
+| `tumblestoneHarvest` | `STEEL` | `ATTACK` |
+| `honey` | `BUG` | `SPEED` |
+| `groundItemGather` | `PSYCHIC` | `SPEED` |
+
+The `honey` group adds these keys:
+
+| Key | Default | Allowed range | Meaning |
+|-----|---------|---------------|---------|
+| `honeycombPerHarvest` | `1` | ≥ 0 | Honeycomb produced per work cycle. |
+| `honeyBottlesPerHarvest` | `1` | ≥ 0 | Honey bottles produced per work cycle. |
+| `requireEmptyBottle` | `true` | `true`/`false` | Consumes one glass bottle from linked storage per honey bottle. |
+| `consumeFullHive` | `false` | `true`/`false` | Drains a full hive for one bonus honeycomb. |
+| `hiveProducesHoneycomb` | `true` | `true`/`false` | Produce honeycomb when a beehive/nest is in the reachable area. |
+| `flowerProducesHoneyBottles` | `true` | `true`/`false` | Produce honey bottles when flowers are in the reachable area. |
+
+Default `honey` species: `combee`, `vespiquen`, `beedrill`, `teddiursa`, `ursaring`, `ribombee`.
+
+### Example
+
+To disable a job, set `enabled` to `false` — for example, a Slowpoke-type water job:
 
 ```json
-{
-  "schemaVersion": 1,
-  "general": {
-    "workIntervalTicks": 200,
-    "blocksPerScanTick": 512,
-    "searchRadius": 8,
-    "searchHeight": 32,
-    "rescanCooldownTicks": 1200,
-    "requireReachableSpace": true
-  },
-  "interaction": {
-    "shiftRightClickGui": true,
-    "guiOpenCooldownTicks": 10
-  },
-  "cropHarvest": { "enabled": true, "type": "GRASS", "species": ["ditto"] },
-  "cropIrrigation": { "enabled": true, "type": "WATER", "species": ["ditto"] },
-  "amethystHarvest": { "enabled": true, "type": "ROCK", "species": ["ditto"] },
-  "gemHarvest": { "enabled": true, "type": "ROCK", "species": ["ditto"] },
-  "apricornHarvest": { "enabled": true, "type": "BUG", "species": ["ditto"] },
-  "berryHarvest": { "enabled": true, "type": "GRASS", "species": ["ditto"] },
-  "mintHarvest": { "enabled": true, "type": "FAIRY", "species": ["ditto"] },
-  "netherwartHarvest": { "enabled": true, "type": "GHOST", "species": ["ditto"] },
-  "tumblestoneHarvest": { "enabled": true, "type": "STEEL", "species": ["ditto"] },
-  "honey": { "enabled": true, "type": "BUG", "species": ["combee", "vespiquen", "beedrill", "teddiursa", "ursaring", "ribombee"], "hiveProducesHoneycomb": true, "honeycombPerHarvest": 1, "flowerProducesHoneyBottles": true, "honeyBottlesPerHarvest": 1, "requireEmptyBottle": true, "consumeFullHive": false },
-  "groundItemGather": { "enabled": true, "type": "PSYCHIC", "species": ["ditto"] }
-}
+{ "cropIrrigation": { "enabled": false } }
 ```
 
-### Groups explained
-
-- **general** — Core engine tuning: how often each worker attempts work (`workIntervalTicks`), how many blocks scanned per server tick (`blocksPerScanTick`), horizontal radius (`searchRadius`), vertical height (`searchHeight`), cache rescan cooldown (`rescanCooldownTicks`), and whether to limit scanning to the contiguous walkable space connected to the pasture (`requireReachableSpace`, default `true`).
-- **interaction** — GUI behaviour: enable shift+right-click (`shiftRightClickGui`), per-player open cooldown in ticks (`guiOpenCooldownTicks`).
-- **Job groups** (`cropHarvest`, `cropIrrigation`, …, `honey`, `groundItemGather`) — Per-job toggles:
-  - `enabled` — master switch for that job.
-  - `type` — required Pokémon type (matches Cobblemon type names: `GRASS`, `WATER`, `ROCK`, `BUG`, `FAIRY`, `GHOST`, `STEEL`, `PSYCHIC`, `NONE`).
-  - `species` — allow-list of species IDs (e.g., `"bulbasaur"`); default `["ditto"]` means any species with the correct type qualifies.
-  - `honey` group adds:
-    - `hiveProducesHoneycomb` (Boolean, default `true`) — enable honeycomb production when a beehive/nest is in the reachable area.
-    - `honeycombPerHarvest` (Int, default `1`) — honeycomb count per work cycle; `0` disables.
-    - `flowerProducesHoneyBottles` (Boolean, default `true`) — enable honey bottle production when flowers are in the reachable area.
-    - `honeyBottlesPerHarvest` (Int, default `1`) — honey bottle count per work cycle; `0` disables.
-    - `requireEmptyBottle` (Boolean, default `true`) — when `true`, a `GLASS_BOTTLE` must be available in linked storage for honey bottles; `false` produces bottles without consuming one.
-    - `consumeFullHive` (Boolean, default `false`) — if a matching hive is full (`honey_level == 5`), drain it to `0` for one bonus honeycomb.
+Note: Slowpoke (Water/Psychic) is eligible for `cropIrrigation` and `groundItemGather` by default because those jobs match by **type**. To exclude it, set `enabled` to `false` or change `type`/`species`.
 
 ### Authoritative Storage Layer
 

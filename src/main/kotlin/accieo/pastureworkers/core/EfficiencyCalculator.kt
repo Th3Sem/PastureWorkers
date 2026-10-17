@@ -9,28 +9,42 @@
  */
 package accieo.pastureworkers.core
 
+import accieo.pastureworkers.config.PastureWorkersConfig
 import com.cobblemon.mod.common.api.pokemon.stats.Stat
 import com.cobblemon.mod.common.pokemon.Pokemon
 import com.cobblemon.mod.common.pokemon.Nature
 
 object EfficiencyCalculator {
 
-    fun compute(pokemon: Pokemon, stat: Stat): Float {
-        val levelBonus = (pokemon.level.coerceAtMost(100) / 100f) * 0.20f
+    fun compute(pokemon: Pokemon, stat: Stat, multiplier: Float = 1f): Float {
+        val scaling = PastureWorkersConfig.config.scaling
+        val levelBonus = (pokemon.level.coerceAtMost(scaling.levelCap) / scaling.levelCap.toFloat()) * scaling.levelWeight
         val statValue = pokemon.getStat(stat)
-        val statBonus = ((statValue - 70) / 500f).coerceIn(-0.10f, 0.10f)
-        val natureBonus = computeNatureBonus(pokemon, stat)
+        val statBonus = ((statValue - scaling.statBaseline) / scaling.statDivisor)
+            .coerceIn(-scaling.statBonusCap, scaling.statBonusCap)
+        val natureBonus = computeNatureBonus(pokemon, stat, scaling.natureBonus)
 
-        return (levelBonus + statBonus + natureBonus).coerceIn(0f, 0.5f)
+        return ((levelBonus + statBonus + natureBonus) * multiplier).coerceIn(0f, scaling.efficiencyCap)
     }
 
-    private fun computeNatureBonus(pokemon: Pokemon, stat: Stat): Float {
+    private fun computeNatureBonus(pokemon: Pokemon, stat: Stat, bonus: Float): Float {
         val nature: Nature = pokemon.effectiveNature
 
         return when {
-            nature.increasedStat == stat -> 0.10f
-            nature.decreasedStat == stat -> -0.10f
+            nature.increasedStat == stat -> bonus
+            nature.decreasedStat == stat -> -bonus
             else -> 0f
         }
     }
+
+    /** Ticks between work attempts: the base interval reduced by [efficiency]. */
+    fun intervalTicks(baseTicks: Int, efficiency: Float): Long {
+        val scaling = PastureWorkersConfig.config.scaling
+        val multiplier = 1f - efficiency * scaling.intervalReduction
+        return (baseTicks * multiplier).toLong().coerceAtLeast(scaling.minIntervalTicks.toLong())
+    }
+
+    /** Fraction of the base interval removed by [efficiency], for the GUI's speed display. */
+    fun speedReduction(efficiency: Float): Float =
+        efficiency * PastureWorkersConfig.config.scaling.intervalReduction
 }

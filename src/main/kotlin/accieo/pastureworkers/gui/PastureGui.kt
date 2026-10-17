@@ -301,12 +301,16 @@ class PastureGuiScreenHandler private constructor(
             lines.add("Roles: $roles")
 
             val job = candidates.first().job
-            val stat = job.relevantStat
-            val efficiency = EfficiencyCalculator.compute(pokemon, stat)
+            val stat = PastureWorkersConfig.statFor(job)
+            val efficiency = EfficiencyCalculator.compute(
+                pokemon,
+                stat,
+                PastureWorkersConfig.groupFor(job.jobType).efficiencyMultiplier
+            )
             val baseInterval = PastureWorkersConfig.config.general.workIntervalTicks
-            val ticks = intervalTicks(baseInterval, efficiency)
+            val ticks = EfficiencyCalculator.intervalTicks(baseInterval, efficiency)
             val seconds = ticks / 20.0
-            val speedReduction = efficiency * 0.8f
+            val speedReduction = EfficiencyCalculator.speedReduction(efficiency)
             val multiplier = if (speedReduction >= 1f) 0f else 1f / (1f - speedReduction)
 
             lines.add("Action Interval: every ${format1(seconds)}s ($ticks ticks)")
@@ -326,12 +330,6 @@ class PastureGuiScreenHandler private constructor(
     }
 
     // --- Live-state helpers (mirror the manager) ------------------------------------------------
-
-    /** Mirrors [PastureWorkManager]'s interval: max(20, baseTicks * (1 - efficiency * 0.8)). */
-    private fun intervalTicks(baseTicks: Int, efficiency: Float): Long {
-        val multiplier = 1f - efficiency * 0.8f
-        return (baseTicks * multiplier).toLong().coerceAtLeast(20L)
-    }
 
     /** True when at least one tethered, non-fainted worker has a viable job right now. */
     private fun isActive(workers: List<Pokemon>, session: PastureSession?, world: ServerWorld?): Boolean {

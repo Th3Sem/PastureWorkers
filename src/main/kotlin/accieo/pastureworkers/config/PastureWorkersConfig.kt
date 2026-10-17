@@ -9,14 +9,18 @@
  */
 package accieo.pastureworkers.config
 
+import accieo.pastureworkers.PastureWorkers
 import accieo.pastureworkers.api.JobType
+import accieo.pastureworkers.api.WorkJob
+import com.cobblemon.mod.common.api.pokemon.stats.Stat
+import com.cobblemon.mod.common.api.pokemon.stats.Stats
 import com.google.gson.GsonBuilder
 import com.google.gson.JsonObject
 import net.fabricmc.loader.api.FabricLoader
 import java.nio.file.Files
 
 /** Current config schema version. Bump when a default change needs a migration. */
-const val CURRENT_SCHEMA = 1
+const val CURRENT_SCHEMA = 2
 
 object PastureWorkersConfig {
 
@@ -103,6 +107,45 @@ object PastureWorkersConfig {
         }
     }
 
+    /** Efficiency scaling constants. Previously hardcoded in [accieo.pastureworkers.core.EfficiencyCalculator]. */
+    class ScalingGroup {
+        /** Level at which the level bonus reaches its maximum. Range: 1..1000. */
+        var levelCap: Int = 100
+        /** Bonus fraction granted at [levelCap] level. Range: 0..1. */
+        var levelWeight: Float = 0.20f
+        /** Stat value at which the stat bonus is zero. */
+        var statBaseline: Int = 70
+        /** Divisor applied to (stat - statBaseline). Coerced to >= 1. */
+        var statDivisor: Float = 500f
+        /** Symmetric cap on the stat bonus. Range: 0..1. */
+        var statBonusCap: Float = 0.10f
+        /** Bonus for a nature raising the scaling stat (negative for one lowering it). Range: 0..1. */
+        var natureBonus: Float = 0.10f
+        /** Upper clamp on the final efficiency. Range: 0..1. */
+        var efficiencyCap: Float = 0.5f
+        /** Fraction of the base interval removed at efficiency 1.0. Range: 0..1. */
+        var intervalReduction: Float = 0.8f
+        /** Lower clamp on the computed work interval, in ticks. Range: 1..1200. */
+        var minIntervalTicks: Int = 20
+        /** Divisor applied to the base interval for an idle retry. Coerced to >= 1. */
+        var idleRetryDivisor: Int = 4
+        /** Upper bound on the extra-yield roll chance. Range: 0..1. */
+        var maxExtraYieldChance: Float = 0.5f
+
+        fun coerce() {
+            levelCap = levelCap.coerceIn(1, 1000)
+            levelWeight = levelWeight.coerceIn(0f, 1f)
+            statDivisor = statDivisor.coerceAtLeast(1f)
+            statBonusCap = statBonusCap.coerceIn(0f, 1f)
+            natureBonus = natureBonus.coerceIn(0f, 1f)
+            efficiencyCap = efficiencyCap.coerceIn(0f, 1f)
+            intervalReduction = intervalReduction.coerceIn(0f, 1f)
+            minIntervalTicks = minIntervalTicks.coerceIn(1, 1200)
+            idleRetryDivisor = idleRetryDivisor.coerceAtLeast(1)
+            maxExtraYieldChance = maxExtraYieldChance.coerceIn(0f, 1f)
+        }
+    }
+
     open class JobGroup {
         /** Whether this job is active. */
         var enabled: Boolean = true
@@ -110,6 +153,17 @@ object PastureWorkersConfig {
         var type: String = ""
         /** Species allowed to perform this job. */
         var species: MutableList<String> = mutableListOf("ditto")
+        /**
+         * Scaling stat name for this job (a Cobblemon Stats name such as ATTACK, DEFENCE, SPEED).
+         * Blank keeps the job's built-in relevantStat.
+         */
+        var stat: String = ""
+        /** Multiplies this job's computed efficiency before the final clamp. Coerced to >= 0. */
+        var efficiencyMultiplier: Float = 1f
+
+        open fun coerce() {
+            efficiencyMultiplier = efficiencyMultiplier.coerceAtLeast(0f)
+        }
     }
 
     class HoneyJobGroup : JobGroup() {
@@ -132,7 +186,8 @@ object PastureWorkersConfig {
          */
         var flowerProducesHoneyBottles: Boolean = true
 
-        fun coerce() {
+        override fun coerce() {
+            super.coerce()
             honeycombPerHarvest = honeycombPerHarvest.coerceAtLeast(0)
             honeyBottlesPerHarvest = honeyBottlesPerHarvest.coerceAtLeast(0)
         }
@@ -154,26 +209,32 @@ object PastureWorkersConfig {
         var schemaVersion: Int = CURRENT_SCHEMA
         var general: GeneralGroup = GeneralGroup()
         var interaction: InteractionGroup = InteractionGroup()
-        var cropHarvest: JobGroup = JobGroup().apply { type = "GRASS" }
-        var cropIrrigation: JobGroup = JobGroup().apply { type = "WATER" }
-        var amethystHarvest: JobGroup = JobGroup().apply { type = "ROCK" }
-        var gemHarvest: JobGroup = JobGroup().apply { type = "ROCK" }
-        var apricornHarvest: JobGroup = JobGroup().apply { type = "BUG" }
-        var berryHarvest: JobGroup = JobGroup().apply { type = "GRASS" }
-        var mintHarvest: JobGroup = JobGroup().apply { type = "FAIRY" }
-        var netherwartHarvest: JobGroup = JobGroup().apply { type = "GHOST" }
-        var tumblestoneHarvest: JobGroup = JobGroup().apply { type = "STEEL" }
+        var scaling: ScalingGroup = ScalingGroup()
+        var cropHarvest: JobGroup = JobGroup().apply { type = "GRASS"; stat = "ATTACK" }
+        var cropIrrigation: JobGroup = JobGroup().apply { type = "WATER"; stat = "DEFENCE" }
+        var amethystHarvest: JobGroup = JobGroup().apply { type = "ROCK"; stat = "ATTACK" }
+        var gemHarvest: JobGroup = JobGroup().apply { type = "ROCK"; stat = "ATTACK" }
+        var apricornHarvest: JobGroup = JobGroup().apply { type = "BUG"; stat = "ATTACK" }
+        var berryHarvest: JobGroup = JobGroup().apply { type = "GRASS"; stat = "SPECIAL_ATTACK" }
+        var mintHarvest: JobGroup = JobGroup().apply { type = "FAIRY"; stat = "SPECIAL_ATTACK" }
+        var netherwartHarvest: JobGroup = JobGroup().apply { type = "GHOST"; stat = "ATTACK" }
+        var tumblestoneHarvest: JobGroup = JobGroup().apply { type = "STEEL"; stat = "ATTACK" }
         var honey: HoneyJobGroup = HoneyJobGroup().apply {
             type = "BUG"
+            stat = "SPEED"
             species = mutableListOf("combee", "vespiquen", "beedrill", "teddiursa", "ursaring", "ribombee")
         }
-        var groundItemGather: JobGroup = JobGroup().apply { type = "PSYCHIC" }
+        var groundItemGather: JobGroup = JobGroup().apply { type = "PSYCHIC"; stat = "SPEED" }
 
         fun coerce() {
             schemaVersion = CURRENT_SCHEMA
             general.coerce()
             interaction.coerce()
-            honey.coerce()
+            scaling.coerce()
+            listOf(
+                cropHarvest, cropIrrigation, amethystHarvest, gemHarvest, apricornHarvest, berryHarvest,
+                mintHarvest, netherwartHarvest, tumblestoneHarvest, honey, groundItemGather
+            ).forEach { it.coerce() }
         }
     }
 
@@ -189,5 +250,31 @@ object PastureWorkersConfig {
         JobType.TUMBLESTONE_HARVEST -> config.tumblestoneHarvest
         JobType.HONEY_COLLECT -> config.honey
         JobType.GROUND_ITEM_GATHER -> config.groundItemGather
+    }
+
+    private val STAT_BY_NAME: Map<String, Stat> = mapOf(
+        "HP" to Stats.HP,
+        "ATTACK" to Stats.ATTACK,
+        "DEFENCE" to Stats.DEFENCE,
+        "SPECIAL_ATTACK" to Stats.SPECIAL_ATTACK,
+        "SPECIAL_DEFENCE" to Stats.SPECIAL_DEFENCE,
+        "SPEED" to Stats.SPEED
+    )
+    private val warnedStats = HashSet<String>()
+
+    /** Resolves a job's scaling stat from config, falling back to its built-in [WorkJob.relevantStat]. */
+    fun statFor(job: WorkJob): Stat {
+        val name = groupFor(job.jobType).stat
+        if (name.isBlank()) return job.relevantStat
+        return STAT_BY_NAME[name] ?: run {
+            if (warnedStats.add(name)) {
+                PastureWorkers.LOGGER.warn(
+                    "[PastureWorkers] Unknown scaling stat '{}' for job {}; using its default",
+                    name,
+                    job.jobType
+                )
+            }
+            job.relevantStat
+        }
     }
 }

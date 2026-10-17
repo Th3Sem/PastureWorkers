@@ -28,6 +28,7 @@ object ConfigMigrations {
     fun apply(config: PastureWorkersConfigData, raw: JsonObject?, from: Int) {
         if (from >= CURRENT_SCHEMA) return
         if (from < 1) migrateV0ToV1(config, raw)
+        if (from < 2) migrateV1ToV2(config, raw)
     }
 
     /**
@@ -48,5 +49,17 @@ object ConfigMigrations {
             config.honey.type = "BUG"
             config.honey.species = HONEY_NEW_SPECIES.toMutableList()
         }
+    }
+
+    /**
+     * v1 -> v2 (scaling config). v2 moves the hardcoded scaling/efficiency constants into the
+     * `scaling` group and adds per-job `stat` / `efficiencyMultiplier` keys. [PastureWorkersConfig.load]
+     * deep-merges fresh defaults over the on-disk JSON, so those new keys are backfilled with their
+     * defaults while every existing user value is preserved. Nothing needs rewriting here; this step
+     * exists only to keep the migration chain explicit.
+     */
+    @Suppress("UNUSED_PARAMETER")
+    private fun migrateV1ToV2(config: PastureWorkersConfigData, raw: JsonObject?) {
+        // No-op: deep-merge backfills the new v2 keys. Do not touch user values.
     }
 }
