@@ -256,11 +256,11 @@ When the Transfer API is available, mutations run inside a committed outer trans
 |---------|---------------|----------------|
 | Movement | Vanilla navigation, workers walk to targets | **None** — virtual, no movement |
 | Pathfinding | Full vanilla pathfinder | **Removed** |
-| Vertical reach | Hard-coded 8 blocks | **Configurable** (`searchHeight`, default 32) |
-| Persistence | Not persisted | **Persisted** — cooldowns, scan state, sessions |
-| Config reload | Not supported | **`/pastureworkers reload`** |
+| Vertical reach | Configurable, 1–8 blocks (default 5) | **Configurable 1–256** (`searchHeight`, default 32) |
+| Persistence | In-memory caches only | **Persisted** — cooldowns, scan state, sessions |
+| Config reload | Client-side config, no live reload | **`/pastureworkers reload`** |
 | GUI | ModMenu / Cloth Config client screen | **Server-side virtual chest GUI** |
-| Scaling | Basic | **Three axes** — level, base/IV/EV, nature |
+| Scaling | None — drops are plain loot-table rolls | **Three axes** — level, base/IV/EV, nature |
 | Client requirement | Required | **None** — server-side only |
 
 ---

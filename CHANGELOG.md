@@ -65,7 +65,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Stale bounds on config change** — `/reload` and GUI reload button re-coerce ranges and refresh scan cuboids immediately.
 - **Unbounded chest list** — chest linking now validates and deduplicates on each session load.
 - **Starvation of job priority** — round-robin scheduling ensures all eligible jobs get cycles; no single job monopolizes workers.
-- **Search height limit of 8** — original hard-coded vertical cap removed; now fully configurable up to 256 blocks.
+- **Vertical search cap** — the original capped the search height at 8 blocks; now configurable up to 256.
 - **Silent item loss with modded storage** — snapshot verification catches adapters that claim acceptance but persist nothing; such targets are marked suspect and skipped.
 - **Perimeter chest detection order-dependence** — adjacency rule ensures a chest in the wall is recognized when interior wins, regardless of scan order.
 - **GUI showing only first registry-matched job** — now shows all viable roles via `JobSelection`.
