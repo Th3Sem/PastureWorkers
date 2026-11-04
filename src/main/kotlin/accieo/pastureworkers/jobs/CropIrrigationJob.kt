@@ -23,7 +23,7 @@ import net.minecraft.world.World
 object CropIrrigationJob : WorkJob {
 
     override val jobType = JobType.CROP_IRRIGATION
-    override val relevantStat = Stats.DEFENCE
+    override val relevantStat = Stats.SPECIAL_ATTACK
     override val needsBlockTargets = true
 
     override fun matches(state: net.minecraft.block.BlockState, world: World, pos: BlockPos): Boolean {

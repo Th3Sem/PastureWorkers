@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-11-04
+
+### Added
+- **New `scaling` keys** — `baseWeight`, `baseStatReference`, `ivWeight` and `evWeight` expose the species base stat, IV and EV axes of the efficiency formula; `statBonusCap` now defaults to `0.30` (`baseWeight + ivWeight + evWeight`), so only a genuinely perfect breeder reaches it.
+- **Self-documenting config** — every group in `pastureworkers.json` now starts with a `_comment` key describing it, and `config/pastureworkers.readme.md` is regenerated on every load with a key-by-key reference (allowed `type`/`stat` values, and that `stat: ""` falls back to the job default).
+
+### Changed
+- **Per-job scaling stats are now diverse** — only `cropHarvest` and `amethystHarvest` still scale on `ATTACK`; the other jobs use `SPECIAL_ATTACK` (irrigation, mint), `DEFENCE` (gem, tumblestone), `SPECIAL_DEFENCE` (berry, nether wart) and `SPEED` (apricorn, honey, ground items). Jobs sharing a required type no longer share a stat, so two GRASS or two BUG Pokémon can be good at different jobs. No job scales on HP, whose totals would make that axis systematically generous.
+- **Efficiency scaling reworked into three independent axes** — level drives work speed only; species base stat + IV + EV drive both speed and extra yield; nature stays a small bonus or penalty. The old `statBaseline`/`statDivisor` pair scaled on `pokemon.getStat()`, which is level-scaled and saturated the stat bonus above roughly level 40 — that is why testers could not tell whether IVs mattered. IVs and EVs are exactly what breeding improves.
+- **Config schema v3 migration** — job `stat` values are rewritten to the new defaults only when the on-disk value still equals the v2 default, and the `scaling` group is replaced only when it still carries the v2 signature (`statBaseline: 70`, `statDivisor: 500`). Genuine user tuning is preserved; the removed keys disappear from the file on the next save.
+- **GUI worker info** — each role line shows the stat actually used for that job, the scanned area is reported as a 17×17 box, a bounded-area indicator shows whether the reachable region is contained, and the extra-yield display reports the real chance instead of a stale value.
+- **Extra yield is quality-only** — the bonus-drop roll now uses the base/IV/EV contribution alone, so level no longer raises drop chance. Level is purely a speed axis, matching what the GUI tells the player.
+- **Hook check at startup** — the Cobblemon tick target is verified once on init rather than waiting for the first pasture tick, which could never happen on an idle server.
+
+### Removed
+- `scaling.statBaseline` and `scaling.statDivisor` — replaced by the base/IV/EV axes (see above).
+
 ## [1.0.0] - 2026-10-11
 
 ### Added

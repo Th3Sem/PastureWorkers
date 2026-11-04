@@ -53,7 +53,6 @@ import net.minecraft.world.World
 import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
-import kotlin.math.roundToInt
 
 /**
  * Server-side, read-only "virtual chest" that shows pasture diagnostics to players.
@@ -256,25 +255,47 @@ class PastureGuiScreenHandler private constructor(
     ): ItemStack {
         val lore = mutableListOf<String>()
         lore.add("Coordinates: ${pos.x}, ${pos.y}, ${pos.z}")
-        lore.add("Linked containers: ${session?.chests?.size ?: 0}")
-        lore.add("State: ${if (isActive(workers, session, world)) "Active" else "Idle"}")
+        lore.add(field("State:", if (isActive(workers, session, world)) "Active" else "Idle"))
+        lore.add(field("Containers:", "${session?.chests?.size ?: 0}"))
 
         val resources = resourceEntries(session, world)
-        if (resources.isEmpty()) {
-            lore.add("Valid resources found: none")
+        if (session == null || world == null) {
+            lore.add(field("Valid targets:", "not scanned"))
+        } else if (resources.isEmpty()) {
+            lore.add(field("Valid targets:", "none"))
         } else {
-            lore.add("Valid resources found:")
+            lore.add("Valid targets:")
             resources.forEach { lore.add("  $it") }
         }
 
-        lore.add("Search radius X/Z: ${general.searchRadius}")
-        lore.add("Search height Y: ${general.searchHeight}")
+        val width = general.searchRadius * 2 + 1
+        val height = general.searchHeight * 2 + 1
+        lore.add(field("Work box:", "$width x $width X/Z blocks"))
+        lore.add(field("Height:", "$height blocks (±${general.searchHeight} Y)"))
+        // A region touching the X/Z edge of the search box means nothing contained it. The Y axis is
+        // ignored on purpose: an unroofed fenced farm is still contained horizontally.
+        val reachedBoxEdge = session != null && session.reachableBoundary.any { cell ->
+            val dx = cell.x - pos.x
+            val dz = cell.z - pos.z
+            dx <= -general.searchRadius || dx >= general.searchRadius ||
+                dz <= -general.searchRadius || dz >= general.searchRadius
+        }
+        val enclosure = when {
+            !general.requireReachableSpace -> "Not checked"
+            session == null -> "Unknown"
+            reachedBoxEdge -> "No (open)"
+            else -> "Yes"
+        }
+        lore.add(field("Enclosed area:", enclosure))
+        lore.add("Level: speed only | stats: speed + yield")
+        lore.add("Base/IV/EV = quality; nature nudges speed only")
+        lore.add("Yield = quality only, capped in config")
         return named(Items.COMPASS, "Pasture Info", lore)
     }
 
     private fun toggleStack(): ItemStack = named(
         Items.LEVER,
-        if (showRadius) "Radius Particles: ON" else "Radius Particles: OFF",
+        if (showRadius) "Radius Particles: On" else "Radius Particles: Off",
         listOf("Click to toggle the scan outline for you")
     )
 
@@ -293,37 +314,43 @@ class PastureGuiScreenHandler private constructor(
         }
 
         if (candidates.isEmpty()) {
-            lines.add("Role: None")
-            lines.add("No eligible job for this Pokemon right now.")
+            lines.add("Viable roles: none")
+            lines.add("No eligible job right now.")
         } else {
-            // Show every viable role; the interval/stat summary scales on the primary (first) one.
-            val roles = candidates.joinToString(", ") { JOB_DISPLAY[it.job.jobType] ?: it.job.jobType.name }
-            lines.add("Roles: $roles")
+            lines.add("Viable roles:")
+            candidates.forEach { candidate ->
+                val role = JOB_DISPLAY[candidate.job.jobType] ?: candidate.job.jobType.name
+                val roleStat = PastureWorkersConfig.statFor(candidate.job)
+                lines.add("  $role · ${roleStat.displayName.string}")
+            }
 
             val job = candidates.first().job
             val stat = PastureWorkersConfig.statFor(job)
-            val efficiency = EfficiencyCalculator.compute(
+            val group = PastureWorkersConfig.groupFor(job.jobType)
+            val breakdown = EfficiencyCalculator.explain(
                 pokemon,
                 stat,
-                PastureWorkersConfig.groupFor(job.jobType).efficiencyMultiplier
+                group.efficiencyMultiplier
             )
             val baseInterval = PastureWorkersConfig.config.general.workIntervalTicks
-            val ticks = EfficiencyCalculator.intervalTicks(baseInterval, efficiency)
+            val ticks = EfficiencyCalculator.intervalTicks(baseInterval, breakdown.efficiency)
             val seconds = ticks / 20.0
-            val speedReduction = EfficiencyCalculator.speedReduction(efficiency)
-            val multiplier = if (speedReduction >= 1f) 0f else 1f / (1f - speedReduction)
-
-            lines.add("Action Interval: every ${format1(seconds)}s ($ticks ticks)")
-
             val base = baseStat(pokemon, stat)
             val iv = pokemon.ivs.getOrDefault(stat)
             val ev = pokemon.evs.getOrDefault(stat)
-            lines.add("Scaling Stat: ${stat.displayName.string} (Base: $base, IV: $iv, EV: $ev)")
+            val speedMultiplier = baseInterval.toFloat() / ticks.toFloat()
+            val extraYieldChance = EfficiencyCalculator.extraYieldChance(breakdown)
 
-            lines.add(
-                "Speed Multiplier: x${format2(multiplier)} (+${(speedReduction * 100f).roundToInt()}% speed)"
-            )
-            lines.add("Extra Yield Chance: +${(efficiency * 100f).roundToInt()}%")
+            lines.add("Breakdown: ${JOB_DISPLAY[job.jobType] ?: job.jobType.name}")
+            lines.add("Scaling stat: ${stat.displayName.string}")
+            lines.add("Contributions (pre job scale):")
+            lines.add("Level: ${formatPercent(breakdown.level)} | Quality: ${formatPercent(breakdown.stat)}")
+            lines.add("Base $base: ${formatPercent(breakdown.base)} | IV $iv: ${formatPercent(breakdown.iv)}")
+            lines.add("EV $ev: ${formatPercent(breakdown.ev)} | Nature: ${formatPercent(breakdown.nature)}")
+            lines.add("Efficiency (final): ${formatPercent(breakdown.efficiency)}")
+            lines.add("Action interval: every ${format1(seconds)}s")
+            lines.add("Speed multiplier: x${format2(speedMultiplier)}")
+            lines.add("Extra yield: ${formatChance(extraYieldChance)} to copy 1 drop")
         }
 
         return applyName(pokemonIcon(pokemon, candidates.firstOrNull()?.job), speciesName, lines)
@@ -399,9 +426,15 @@ class PastureGuiScreenHandler private constructor(
         return stack
     }
 
+    private fun field(label: String, value: String): String = "${label.padEnd(16)}$value"
+
     private fun format1(value: Double): String = String.format(Locale.ROOT, "%.1f", value)
 
     private fun format2(value: Float): String = String.format(Locale.ROOT, "%.2f", value)
+
+    private fun formatPercent(value: Float): String = String.format(Locale.ROOT, "%+.1f%%", value * 100f)
+
+    private fun formatChance(value: Float): String = String.format(Locale.ROOT, "%.1f%%", value * 100f)
 
     companion object {
         const val INFO_SLOT = 4
@@ -416,20 +449,20 @@ class PastureGuiScreenHandler private constructor(
 
         /** Human-readable role names shown per worker. */
         private val JOB_DISPLAY: Map<JobType, String> = mapOf(
-            JobType.CROP_HARVEST to "Crop Harvester",
-            JobType.CROP_IRRIGATION to "Irrigator",
-            JobType.AMETHYST_HARVEST to "Amethyst Miner",
-            JobType.GEM_HARVEST to "Gem Miner",
-            JobType.APRICORN_HARVEST to "Apricorn Picker",
-            JobType.BERRY_HARVEST to "Berry Picker",
-            JobType.MINT_HARVEST to "Mint Gardener",
-            JobType.NETHERWART_HARVEST to "Nether Wart Farmer",
-            JobType.TUMBLESTONE_HARVEST to "Tumblestone Miner",
-            JobType.HONEY_COLLECT to "Beekeeper",
-            JobType.GROUND_ITEM_GATHER to "Item Collector"
+            JobType.CROP_HARVEST to "Crop Harvest",
+            JobType.CROP_IRRIGATION to "Crop Irrigation",
+            JobType.AMETHYST_HARVEST to "Amethyst Harvest",
+            JobType.GEM_HARVEST to "Gem Harvest",
+            JobType.APRICORN_HARVEST to "Apricorn Harvest",
+            JobType.BERRY_HARVEST to "Berry Harvest",
+            JobType.MINT_HARVEST to "Mint Harvest",
+            JobType.NETHERWART_HARVEST to "Nether Wart Harvest",
+            JobType.TUMBLESTONE_HARVEST to "Tumblestone Harvest",
+            JobType.HONEY_COLLECT to "Honey Collect",
+            JobType.GROUND_ITEM_GATHER to "Ground Item Gather"
         )
 
-        /** Resource labels for the "Valid resources found" header list. */
+        /** Resource labels for the valid target list. */
         private val JOB_RESOURCE: Map<JobType, String> = mapOf(
             JobType.CROP_HARVEST to "Crops",
             JobType.CROP_IRRIGATION to "Dry Crops",

@@ -26,7 +26,7 @@ import net.minecraft.world.World
 object BerryHarvestJob : WorkJob {
 
     override val jobType = JobType.BERRY_HARVEST
-    override val relevantStat = Stats.SPECIAL_ATTACK
+    override val relevantStat = Stats.SPECIAL_DEFENCE
     override val needsBlockTargets = true
 
     private val BERRIES_TAG = TagKey.of(RegistryKeys.BLOCK, Identifier.of("cobblemon", "berries"))

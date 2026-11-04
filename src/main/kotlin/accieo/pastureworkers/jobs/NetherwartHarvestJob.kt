@@ -23,7 +23,7 @@ import net.minecraft.world.World
 object NetherwartHarvestJob : WorkJob {
 
     override val jobType = JobType.NETHERWART_HARVEST
-    override val relevantStat = Stats.ATTACK
+    override val relevantStat = Stats.SPECIAL_DEFENCE
     override val needsBlockTargets = true
 
     override fun matches(state: net.minecraft.block.BlockState, world: World, pos: BlockPos): Boolean {

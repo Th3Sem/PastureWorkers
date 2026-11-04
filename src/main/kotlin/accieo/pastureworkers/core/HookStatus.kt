@@ -10,34 +10,31 @@
 package accieo.pastureworkers.core
 
 import accieo.pastureworkers.PastureWorkers
-import java.util.concurrent.atomic.AtomicBoolean
+import com.cobblemon.mod.common.block.entity.PokemonPastureBlockEntity
 
 /**
  * The mixin tick hook is injected with `require = 0` so a Cobblemon target change degrades
- * gracefully instead of crashing at startup. This object records whether the hook ever ran and
- * emits a single explanatory warning if it stays silent.
+ * gracefully instead of crashing at startup. This checks once at startup that the injection
+ * target still exists — cheaper and more accurate than waiting for a pasture to tick, which may
+ * never happen in the first minute on a server where nobody is near one.
  */
 object HookStatus {
-    private const val WARN_AFTER_TICKS = 1200
+    private const val TICK_METHOD = "TICKER\$lambda\$0"
 
-    private val tickHookSeen = AtomicBoolean(false)
-    private val watchdogLogged = AtomicBoolean(false)
-    private var ticksWithoutHook = 0
+    private var targetPresent = false
+    private var verified = false
 
-    val tickHookActive: Boolean get() = tickHookSeen.get()
+    val tickHookActive: Boolean get() = targetPresent
 
-    fun markTickHookSeen() {
-        tickHookSeen.set(true)
-    }
-
-    fun onServerTick() {
-        if (tickHookSeen.get()) return
-        ticksWithoutHook++
-        if (ticksWithoutHook >= WARN_AFTER_TICKS && watchdogLogged.compareAndSet(false, true)) {
+    fun verify() {
+        if (verified) return
+        verified = true
+        targetPresent = PokemonPastureBlockEntity::class.java.declaredMethods.any { it.name == TICK_METHOD }
+        if (!targetPresent) {
             PastureWorkers.LOGGER.warn(
-                "[PastureWorkers] Pasture tick hook not attached after {}s (Cobblemon target changed?). " +
+                "[PastureWorkers] Cobblemon tick target {} not found (Cobblemon changed it?). " +
                     "Automation is disabled, but the game is not crashed. Update the mod or report the mismatch.",
-                WARN_AFTER_TICKS / 20
+                TICK_METHOD
             )
         }
     }

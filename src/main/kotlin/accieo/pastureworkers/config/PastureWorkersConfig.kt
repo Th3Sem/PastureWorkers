@@ -20,7 +20,7 @@ import net.fabricmc.loader.api.FabricLoader
 import java.nio.file.Files
 
 /** Current config schema version. Bump when a default change needs a migration. */
-const val CURRENT_SCHEMA = 2
+const val CURRENT_SCHEMA = 3
 
 object PastureWorkersConfig {
 
@@ -57,6 +57,7 @@ object PastureWorkersConfig {
             config = PastureWorkersConfigData().apply { coerce() }
         }
         save()
+        writeReadme()
     }
 
     /** Recursively overlays [override] onto [base]; missing keys keep [base]'s value. */
@@ -82,6 +83,8 @@ object PastureWorkersConfig {
     }
 
     class GeneralGroup {
+        /** One-line explanation of this group, written into the config file. */
+        var _comment: String = "scanner cadence and search box around each pasture"
         /** Ticks between work attempts for each tethered Pokemon. Range: 20..1200. */
         var workIntervalTicks: Int = 200
         /** Maximum number of blocks scanned per server tick. Range: 64..4096. */
@@ -109,16 +112,25 @@ object PastureWorkersConfig {
 
     /** Efficiency scaling constants. Previously hardcoded in [accieo.pastureworkers.core.EfficiencyCalculator]. */
     class ScalingGroup {
+        /** One-line explanation of this group, written into the config file. */
+        var _comment: String = "level drives speed; base+IV+EV drive speed and extra yield"
         /** Level at which the level bonus reaches its maximum. Range: 1..1000. */
         var levelCap: Int = 100
         /** Bonus fraction granted at [levelCap] level. Range: 0..1. */
         var levelWeight: Float = 0.20f
-        /** Stat value at which the stat bonus is zero. */
-        var statBaseline: Int = 70
-        /** Divisor applied to (stat - statBaseline). Coerced to >= 1. */
-        var statDivisor: Float = 500f
-        /** Symmetric cap on the stat bonus. Range: 0..1. */
-        var statBonusCap: Float = 0.10f
+        /** Bonus fraction granted by the species base stat at [baseStatReference]. Range: 0..1. */
+        var baseWeight: Float = 0.10f
+        /** Species base stat mapping to the full [baseWeight] bonus. Coerced to >= 1. */
+        var baseStatReference: Float = 180f
+        /** Bonus fraction granted by a perfect (31) IV. Range: 0..1. */
+        var ivWeight: Float = 0.10f
+        /** Bonus fraction granted by a maxed (252) EV. Range: 0..1. */
+        var evWeight: Float = 0.10f
+        /**
+         * Symmetric cap on base + IV + EV combined, equal to baseWeight+ivWeight+evWeight, so only a
+         * genuinely perfect breeder reaches it. Range: 0..1.
+         */
+        var statBonusCap: Float = 0.30f
         /** Bonus for a nature raising the scaling stat (negative for one lowering it). Range: 0..1. */
         var natureBonus: Float = 0.10f
         /** Upper clamp on the final efficiency. Range: 0..1. */
@@ -135,7 +147,10 @@ object PastureWorkersConfig {
         fun coerce() {
             levelCap = levelCap.coerceIn(1, 1000)
             levelWeight = levelWeight.coerceIn(0f, 1f)
-            statDivisor = statDivisor.coerceAtLeast(1f)
+            baseWeight = baseWeight.coerceIn(0f, 1f)
+            baseStatReference = baseStatReference.coerceAtLeast(1f)
+            ivWeight = ivWeight.coerceIn(0f, 1f)
+            evWeight = evWeight.coerceIn(0f, 1f)
             statBonusCap = statBonusCap.coerceIn(0f, 1f)
             natureBonus = natureBonus.coerceIn(0f, 1f)
             efficiencyCap = efficiencyCap.coerceIn(0f, 1f)
@@ -147,6 +162,8 @@ object PastureWorkersConfig {
     }
 
     open class JobGroup {
+        /** One-line explanation of this group, written into the config file. */
+        var _comment: String = ""
         /** Whether this job is active. */
         var enabled: Boolean = true
         /** Required Pokemon type for this job (e.g. GRASS, WATER, NONE). */
@@ -194,6 +211,8 @@ object PastureWorkersConfig {
     }
 
     class InteractionGroup {
+        /** One-line explanation of this group, written into the config file. */
+        var _comment: String = "how players open the GUI from a pasture block"
         /** Whether shift + right-clicking a pasture with an empty hand opens the GUI. */
         var shiftRightClickGui: Boolean = true
         /** Minimum ticks between two GUI opens by the same player. Coerced to >= 0. */
@@ -210,21 +229,47 @@ object PastureWorkersConfig {
         var general: GeneralGroup = GeneralGroup()
         var interaction: InteractionGroup = InteractionGroup()
         var scaling: ScalingGroup = ScalingGroup()
-        var cropHarvest: JobGroup = JobGroup().apply { type = "GRASS"; stat = "ATTACK" }
-        var cropIrrigation: JobGroup = JobGroup().apply { type = "WATER"; stat = "DEFENCE" }
-        var amethystHarvest: JobGroup = JobGroup().apply { type = "ROCK"; stat = "ATTACK" }
-        var gemHarvest: JobGroup = JobGroup().apply { type = "ROCK"; stat = "ATTACK" }
-        var apricornHarvest: JobGroup = JobGroup().apply { type = "BUG"; stat = "ATTACK" }
-        var berryHarvest: JobGroup = JobGroup().apply { type = "GRASS"; stat = "SPECIAL_ATTACK" }
-        var mintHarvest: JobGroup = JobGroup().apply { type = "FAIRY"; stat = "SPECIAL_ATTACK" }
-        var netherwartHarvest: JobGroup = JobGroup().apply { type = "GHOST"; stat = "ATTACK" }
-        var tumblestoneHarvest: JobGroup = JobGroup().apply { type = "STEEL"; stat = "ATTACK" }
+        var cropHarvest: JobGroup = JobGroup().apply {
+            type = "GRASS"; stat = "ATTACK"; _comment = "harvests mature crops; needs GRASS, scales on ATTACK"
+        }
+        var cropIrrigation: JobGroup = JobGroup().apply {
+            type = "WATER"; stat = "SPECIAL_ATTACK"
+            _comment = "waters farmland; needs WATER, scales on SPECIAL_ATTACK"
+        }
+        var amethystHarvest: JobGroup = JobGroup().apply {
+            type = "ROCK"; stat = "ATTACK"; _comment = "harvests amethyst; needs ROCK, scales on ATTACK"
+        }
+        var gemHarvest: JobGroup = JobGroup().apply {
+            type = "ROCK"; stat = "DEFENCE"; _comment = "harvests type gems; needs ROCK, scales on DEFENCE"
+        }
+        var apricornHarvest: JobGroup = JobGroup().apply {
+            type = "BUG"; stat = "SPEED"; _comment = "harvests apricorns; needs BUG, scales on SPEED"
+        }
+        var berryHarvest: JobGroup = JobGroup().apply {
+            type = "GRASS"; stat = "SPECIAL_DEFENCE"
+            _comment = "harvests berries; needs GRASS, scales on SPECIAL_DEFENCE"
+        }
+        var mintHarvest: JobGroup = JobGroup().apply {
+            type = "FAIRY"; stat = "SPECIAL_ATTACK"
+            _comment = "harvests mints; needs FAIRY, scales on SPECIAL_ATTACK"
+        }
+        var netherwartHarvest: JobGroup = JobGroup().apply {
+            type = "GHOST"; stat = "SPECIAL_DEFENCE"
+            _comment = "harvests nether wart; needs GHOST, scales on SPECIAL_DEFENCE"
+        }
+        var tumblestoneHarvest: JobGroup = JobGroup().apply {
+            type = "STEEL"; stat = "DEFENCE"
+            _comment = "harvests tumblestone; needs STEEL, scales on DEFENCE"
+        }
         var honey: HoneyJobGroup = HoneyJobGroup().apply {
             type = "BUG"
             stat = "SPEED"
             species = mutableListOf("combee", "vespiquen", "beedrill", "teddiursa", "ursaring", "ribombee")
+            _comment = "produces honeycomb and honey bottles; needs BUG, scales on SPEED"
         }
-        var groundItemGather: JobGroup = JobGroup().apply { type = "PSYCHIC"; stat = "SPEED" }
+        var groundItemGather: JobGroup = JobGroup().apply {
+            type = "PSYCHIC"; stat = "SPEED"; _comment = "collects dropped items; needs PSYCHIC, scales on SPEED"
+        }
 
         fun coerce() {
             schemaVersion = CURRENT_SCHEMA
@@ -276,5 +321,80 @@ object PastureWorkersConfig {
             }
             job.relevantStat
         }
+    }
+
+    /** Human-readable reference for every config key, reused verbatim from the KDoc above. */
+    private val CONFIG_DOCS: Map<String, String> = linkedMapOf(
+        "schemaVersion" to "On-disk schema version, used to run the right migrations on load. Managed by the mod; do not edit.",
+        "general.workIntervalTicks" to "Ticks between work attempts for each tethered Pokemon. Range: 20..1200.",
+        "general.blocksPerScanTick" to "Maximum number of blocks scanned per server tick. Range: 64..4096.",
+        "general.searchRadius" to "Horizontal search radius around the pasture block, in blocks. Range: 1..32.",
+        "general.searchHeight" to "Vertical search height around the pasture block, in blocks. Range: 1..256.",
+        "general.rescanCooldownTicks" to "Ticks before the block cache is scanned again. Range: 200..7200.",
+        "general.requireReachableSpace" to "When true, only the contiguous walkable space connected to the pasture is worked; closed perimeter walls stop the scan. When false, the full search box is scanned (legacy behaviour).",
+        "interaction.shiftRightClickGui" to "Whether shift + right-clicking a pasture with an empty hand opens the GUI.",
+        "interaction.guiOpenCooldownTicks" to "Minimum ticks between two GUI opens by the same player. Coerced to >= 0.",
+        "scaling.levelCap" to "Level at which the level bonus reaches its maximum. Range: 1..1000.",
+        "scaling.levelWeight" to "Bonus fraction granted at levelCap level. Range: 0..1.",
+        "scaling.baseWeight" to "Bonus fraction granted by the species base stat at baseStatReference. Range: 0..1.",
+        "scaling.baseStatReference" to "Species base stat mapping to the full baseWeight bonus. Coerced to >= 1.",
+        "scaling.ivWeight" to "Bonus fraction granted by a perfect (31) IV. Range: 0..1.",
+        "scaling.evWeight" to "Bonus fraction granted by a maxed (252) EV. Range: 0..1.",
+        "scaling.statBonusCap" to "Symmetric cap on base + IV + EV combined, equal to baseWeight+ivWeight+evWeight, so only a genuinely perfect breeder reaches it. Range: 0..1.",
+        "scaling.natureBonus" to "Bonus for a nature raising the scaling stat (negative for one lowering it). Range: 0..1.",
+        "scaling.efficiencyCap" to "Upper clamp on the final efficiency. Range: 0..1.",
+        "scaling.intervalReduction" to "Fraction of the base interval removed at efficiency 1.0. Range: 0..1.",
+        "scaling.minIntervalTicks" to "Lower clamp on the computed work interval, in ticks. Range: 1..1200.",
+        "scaling.idleRetryDivisor" to "Divisor applied to the base interval for an idle retry. Coerced to >= 1.",
+        "scaling.maxExtraYieldChance" to "Upper bound on the extra-yield roll chance. Range: 0..1.",
+        "jobGroup.enabled" to "Whether this job is active.",
+        "jobGroup.type" to "Required Pokemon type for this job (e.g. GRASS, WATER, NONE). A Pokemon is eligible if its type or its species matches.",
+        "jobGroup.species" to "Species allowed to perform this job (lowercase showdown names).",
+        "jobGroup.stat" to "Scaling stat name for this job (a Cobblemon Stats name such as ATTACK, DEFENCE, SPEED). Blank keeps the job's built-in relevantStat.",
+        "jobGroup.efficiencyMultiplier" to "Multiplies this job's computed efficiency before the final clamp. Coerced to >= 0.",
+        "honey.honeycombPerHarvest" to "Honeycomb produced per work cycle while a beehive/nest catalyst is present. Coerced to >= 0.",
+        "honey.honeyBottlesPerHarvest" to "Honey bottles produced per work cycle while a flower catalyst is present. Coerced to >= 0.",
+        "honey.requireEmptyBottle" to "When true, honey-bottle production withdraws one GLASS_BOTTLE from a linked container.",
+        "honey.consumeFullHive" to "When true, a matched full hive is also drained to 0 for one bonus honeycomb.",
+        "honey.hiveProducesHoneycomb" to "When true and a beehive or bee nest is within the reachable area, the worker produces honeycomb each cycle. The hive does not need to be full.",
+        "honey.flowerProducesHoneyBottles" to "When true and flowers are within the reachable area, the worker fills a honey bottle, consuming one empty glass bottle from linked storage when requireEmptyBottle is true."
+    )
+
+    /** Writes `config/pastureworkers.readme.md`; JSON cannot carry comments of its own. */
+    private fun writeReadme() {
+        val path = configPath.parent.resolve("pastureworkers.readme.md")
+        val jobs = linkedMapOf(
+            "cropHarvest" to config.cropHarvest,
+            "cropIrrigation" to config.cropIrrigation,
+            "amethystHarvest" to config.amethystHarvest,
+            "gemHarvest" to config.gemHarvest,
+            "apricornHarvest" to config.apricornHarvest,
+            "berryHarvest" to config.berryHarvest,
+            "mintHarvest" to config.mintHarvest,
+            "netherwartHarvest" to config.netherwartHarvest,
+            "tumblestoneHarvest" to config.tumblestoneHarvest,
+            "honey" to config.honey,
+            "groundItemGather" to config.groundItemGather
+        )
+        val text = buildString {
+            appendLine("# pastureworkers.json reference")
+            appendLine()
+            appendLine("Generated by the mod whenever the config loads; edits to this file are overwritten.")
+            appendLine("Every group in the JSON also carries a `_comment` key with a one-line explanation.")
+            appendLine()
+            appendLine("`type`: a Cobblemon type name (NORMAL, FIRE, WATER, ELECTRIC, GRASS, ICE, FIGHTING, POISON,")
+            appendLine("GROUND, FLYING, PSYCHIC, BUG, ROCK, GHOST, DRAGON, DARK, STEEL, FAIRY), case-insensitive;")
+            appendLine("blank means no type match.")
+            appendLine("`stat`: one of HP, ATTACK, DEFENCE, SPECIAL_ATTACK, SPECIAL_DEFENCE, SPEED; \"\" falls back")
+            appendLine("to the job's built-in default stat.")
+            appendLine()
+            for ((key, description) in CONFIG_DOCS) appendLine("$key - $description")
+            appendLine()
+            appendLine("Job groups (current `type` / `stat`):")
+            for ((key, group) in jobs) {
+                appendLine("$key - type ${group.type.ifBlank { "(none)" }}, stat ${group.stat.ifBlank { "(job default)" }}: ${group._comment}")
+            }
+        }
+        Files.writeString(path, text)
     }
 }

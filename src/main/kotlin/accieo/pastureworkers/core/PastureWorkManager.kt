@@ -112,10 +112,10 @@ object PastureWorkManager {
             val candidate = candidates[(start + offset) % candidates.size]
             val job = candidate.job
             val group = PastureWorkersConfig.groupFor(job.jobType)
-            val efficiency = EfficiencyCalculator.compute(pokemon, PastureWorkersConfig.statFor(job), group.efficiencyMultiplier)
-            val interval = EfficiencyCalculator.intervalTicks(general.workIntervalTicks, efficiency)
+            val breakdown = EfficiencyCalculator.explain(pokemon, PastureWorkersConfig.statFor(job), group.efficiencyMultiplier)
+            val interval = EfficiencyCalculator.intervalTicks(general.workIntervalTicks, breakdown.efficiency)
             val actionPos = if (job.needsBlockTargets) candidate.targets.first() else pasturePos
-            val ctx = WorkContext(world, pasturePos, pokemonEntity, pokemon, random, efficiency, session.chests)
+            val ctx = WorkContext(world, pasturePos, pokemonEntity, pokemon, random, breakdown.efficiency, session.chests)
 
             val drops = try {
                 job.perform(ctx, candidate.targets)
@@ -134,7 +134,7 @@ object PastureWorkManager {
                 continue
             }
 
-            val finalDrops = applyBonusRoll(drops, efficiency, random)
+            val finalDrops = applyBonusRoll(drops, EfficiencyCalculator.extraYieldChance(breakdown), random)
             val targets = session.chests.mapNotNull { StorageResolver.resolve(world, it) }
             val remainder = StorageDeposit.deposit(world, pasturePos, targets, finalDrops)
             DepositUtils.dropAt(world, pasturePos, remainder)
@@ -168,8 +168,7 @@ object PastureWorkManager {
         }
     }
 
-    private fun applyBonusRoll(drops: List<ItemStack>, efficiency: Float, random: Random): List<ItemStack> {
-        val chance = minOf(efficiency, PastureWorkersConfig.config.scaling.maxExtraYieldChance)
+    private fun applyBonusRoll(drops: List<ItemStack>, chance: Float, random: Random): List<ItemStack> {
         if (drops.isEmpty() || random.nextFloat() >= chance) return drops
         val eligible = drops.filter { !it.isEmpty }
         if (eligible.isEmpty()) return drops

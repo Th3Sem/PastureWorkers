@@ -1,6 +1,6 @@
 # PastureWorkers
 
-A Fabric mod for Minecraft 1.21.1 that lets tethered Cobblemon Pokémon perform pasture jobs without moving. Zero pathfinding, zero AI goals, pure server-side logical scanning on tick intervals.
+Tethered Cobblemon Pokémon work your pasture **without moving**. No pathfinding, no AI goals — pure server-side scanning on a tick budget. **Server-side only: clients do not need the mod.**
 
 [![License: MPL-2.0](https://img.shields.io/badge/License-MPL--2.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
 [![Minecraft 1.21.1](https://img.shields.io/badge/Minecraft-1.21.1-62b47a.svg)](https://www.minecraft.net/)
@@ -8,72 +8,122 @@ A Fabric mod for Minecraft 1.21.1 that lets tethered Cobblemon Pokémon perform 
 [![Cobblemon 1.8.1](https://img.shields.io/badge/Cobblemon-1.8.1-ff6b6b.svg)](https://cobblemon.com/)
 [![GitHub](https://img.shields.io/badge/GitHub-Th3Sem%2FPastureWorkers-181717.svg)](https://github.com/Th3Sem/PastureWorkers)
 
-## Virtual Background Engine
+---
 
-PastureWorkers replaces the traditional "worker walks to block, interacts, walks back" loop with a **virtual background engine**:
+## Quick start
 
-- **Zero pathfinding** — no navigation mesh, no AI goals, no movement code paths.
-- **Zero AI goals** — Pokémon never leave the pasture block entity; work is purely logical.
-- **Server-side scanning** — on each work interval the server scans a configurable cuboid around the pasture, budgets block checks per tick (`blocksPerScanTick`), and performs harvest/interaction actions instantly.
-- **Budgeted block scanning** — `blocksPerScanTick` (default 512, range 64–4096) caps CPU cost per tick; large radii scale gracefully.
-- **Zero tick-lag focus** — the engine is designed to keep per-tick cost predictable and low; no entity movement, no chunk loading from wandering workers.
+1. Install [Fabric Loader](https://fabricmc.net/use/) ≥ 0.19.5, [Fabric API](https://modrinth.com/mod/fabric-api), [Fabric Language Kotlin](https://modrinth.com/mod/fabric-language-kotlin) and [Cobblemon](https://modrinth.com/mod/cobblemon) 1.8.1 on the **server**.
+2. Drop `pastureworkers-1.1.0.jar` into `mods/`.
+3. Start the server once, then **build a fenced pasture** around a Cobblemon Pasture block and tether your workers to it.
+4. **Shift + right-click** the pasture with an empty hand to open the GUI and see what each worker can do.
 
-### Cached Room Reachability (Flood-Fill)
+The config appears at `config/pastureworkers.json`. Every key is documented in [`config/pastureworkers.readme.md`](#configuration), which the mod regenerates on every load.
 
-When `requireReachableSpace` is `true` (default), the scanner performs a **cached flood-fill** from the pasture block across ticks, expanding only through blocks without a collision box (air, plants, crops, water pass; walls, fences, solid blocks block). The result is a contiguous walkable region:
+---
 
-- A closed perimeter wall **contains** the Pokémon — crops and chests outside the walls are never reached, even if within radius/height.
-- Internal pillars/obstacles are routed around.
-- The region is recomputed on the normal rescan cadence (`rescanCooldownTicks`, default 1200).
-- An unroofed/open farm is **not contained** — the region escapes into open air and effectively fills the whole search box.
+## How it works
 
-**Region-based room model:** Detection (storage + job targets) is accumulated globally across the search box. The flood-fill splits the walkable space into connected components (seeded from the pasture's passable face-neighbours; the solid pasture itself never bridges components). A single priority rule selects the primary region: the component in the pasture's facing direction, then the one with the most job-relevant resource cells, then fewest boundary cells, then largest. At commit time, a detection is kept iff it lies in or is adjacent to the winning region — so a chest embedded in the perimeter wall is still recognized when the interior region wins (order-independent).
+PastureWorkers replaces the classic "worker walks to block, interacts, walks back" loop with a **virtual background engine**:
 
-Set `requireReachableSpace: false` in the `general` config to disable the flood-fill and fall back to the full solid box scan.
+- **Zero pathfinding, zero AI goals.** Work is purely logical; no navigation mesh, no movement code.
+- **Budgeted scanning.** Each interval the server scans a configurable cuboid around the pasture, capped at `blocksPerScanTick` (default 512) block checks per tick, so large radii scale gracefully.
+- **Predictable tick cost.** No entity movement, no chunk loading from workers wandering off.
 
-## Comparison vs. Original Cobbleworkers
+### Reachability and enclosed farms
 
-| Feature | Cobbleworkers (original) | PastureWorkers (this mod) |
-|---------|--------------------------|---------------------------|
-| Movement | Vanilla navigation, workers walk to targets | **None** — virtual, no movement |
-| Pathfinding | Full vanilla pathfinder | **Removed** |
-| Vertical reach limit | Hard-coded 8 blocks search height | **Configurable Y** (`searchHeight`, default 32, max 256) |
-| Persistence across restarts | Not persisted | **Persisted** — cooldowns, scan state, sessions saved |
-| Config reload | Not supported | **`/pastureworkers reload`** (op level 2) |
-| GUI | ModMenu / Cloth Config client screen | **Server-side virtual chest GUI** (read-only) |
-| Scaling by stats/nature | Basic | **Full** — level, IVs, EVs, nature, relevant stat per job |
-| Client requirement | Required (client mod) | **None** — server-side only |
+With `requireReachableSpace: true` (default) the scanner runs a **cached flood-fill** from the pasture, expanding only through blocks without a collision box (air, plants, crops and water pass; walls, fences and solid blocks block it). The result is the contiguous walkable region your workers can actually use:
+
+- A **closed fence wall contains** the workers. Crops and chests outside the wall are never touched, even within radius.
+- Internal pillars are routed around.
+- An **open farm is not contained** — the region escapes into open air and effectively fills the whole search box, so workers reach everything in range and visually wander before being recalled to the pasture.
+- The region is recomputed on the rescan cadence (`rescanCooldownTicks`, default 1200).
+
+> **Recommendation:** fence the pasture. It bounds the work area, keeps workers visually nearby, and stops them from harvesting the neighbours' crops. The GUI reports whether the detected area is enclosed or open.
+
+**Region-based room model.** Detection is accumulated globally across the search box; the flood-fill splits walkable space into connected components seeded from the pasture's passable face-neighbours (the solid pasture never bridges components). A single priority rule picks the primary region — the component in the pasture's facing direction, then most job-relevant resource cells, then fewest boundary cells, then largest. A detection is kept iff it lies in or is adjacent to that region, so a chest embedded in the perimeter wall is still recognised.
+
+Set `requireReachableSpace: false` to disable the flood-fill and scan the full box (legacy behaviour).
+
+---
 
 ## Jobs
 
-Each job has a required Pokémon type and an efficiency stat that scales bonus-drop chance.
+Each job requires a Pokémon type and scales on **one** Cobblemon stat.
 
-| Job Type | Required Type | Relevant Stat | Config Group |
-|----------|---------------|---------------|--------------|
+| Job | Required type | Scaling stat | Config group |
+|-----|---------------|--------------|--------------|
 | Crop Harvest | GRASS | Attack | `cropHarvest` |
-| Crop Irrigation | WATER | Defence | `cropIrrigation` |
+| Crop Irrigation | WATER | Special Attack | `cropIrrigation` |
 | Amethyst Harvest | ROCK | Attack | `amethystHarvest` |
-| Gem Harvest | ROCK | Attack | `gemHarvest` |
-| Apricorn Harvest | BUG | Attack | `apricornHarvest` |
-| Berry Harvest | GRASS | Special Attack | `berryHarvest` |
+| Gem Harvest | ROCK | Defence | `gemHarvest` |
+| Apricorn Harvest | BUG | Speed | `apricornHarvest` |
+| Berry Harvest | GRASS | Special Defence | `berryHarvest` |
 | Mint Harvest | FAIRY | Special Attack | `mintHarvest` |
-| Nether Wart Harvest | GHOST | Attack | `netherwartHarvest` |
-| Tumblestone Harvest | STEEL | Attack | `tumblestoneHarvest` |
+| Nether Wart Harvest | GHOST | Special Defence | `netherwartHarvest` |
+| Tumblestone Harvest | STEEL | Defence | `tumblestoneHarvest` |
 | Honey Collect | BUG | Speed | `honey` |
 | Ground Item Gather | PSYCHIC | Speed | `groundItemGather` |
 
-Jobs run in **round-robin** order per worker per tick. A worker picks the first eligible job from the registry.
+Jobs of the same type do **not** share a stat: two GRASS Pokémon can be good at different jobs, because base stats, IVs, EVs and nature are evaluated on that job's stat axis.
 
-### Honey Production
+A worker cycles through its viable jobs in **round-robin** order, so one job never starves the others.
 
-The `HONEY_COLLECT` job ("Honey Harvester") uses beehives/nests and flowers as **persistent catalysts** in the reachable area (never consumed, except the optional `consumeFullHive` bonus):
+### Honey production
 
-- **Beehive mode** (`hiveProducesHoneycomb`, default `true`): when a beehive or bee nest is within the reachable region, the worker produces honeycomb each work cycle. The hive does **not** need to be full. `honeycombPerHarvest` (default `1`, `0` disables) sets the output count.
-- **Flower mode** (`flowerProducesHoneyBottles`, default `true`): when flowers (`#minecraft:flowers`) are within the reachable region, the worker fills a honey bottle — it withdraws one empty `GLASS_BOTTLE` from linked storage and deposits the produced `HONEY_BOTTLE` back into linked storage. `honeyBottlesPerHarvest` (default `1`, `0` disables) sets the output count. `requireEmptyBottle` (default `true`) controls whether a bottle must be available.
-- **Optional bonus** (`consumeFullHive`, default `false`): if a matching hive is full (`honey_level == 5`), it is drained to `0` for one extra honeycomb.
-- The honey group is eligibility-configured like any other job: `enabled`, `type` (default `BUG`), `species` (default `[combee, vespiquen, beedrill, teddiursa, ursaring, ribombee]`).
+`HONEY_COLLECT` uses beehives/nests and flowers as **persistent catalysts** in the reachable area (never consumed, except the optional `consumeFullHive` bonus):
 
-Both modes are independent — you can enable/disable each via its toggle.
+- **Beehive mode** (`hiveProducesHoneycomb`, default `true`): a beehive or bee nest in the area produces `honeycombPerHarvest` honeycomb per cycle. The hive does **not** need to be full.
+- **Flower mode** (`flowerProducesHoneyBottles`, default `true`): flowers (`#minecraft:flowers`) in the area fill honey bottles — one `GLASS_BOTTLE` is withdrawn from linked storage and the `HONEY_BOTTLE` deposited back. `honeyBottlesPerHarvest` sets the output; `requireEmptyBottle` (default `true`) controls the bottle requirement.
+- **Optional bonus** (`consumeFullHive`, default `false`): a full hive (`honey_level == 5`) is drained to `0` for one extra honeycomb.
+
+Both modes are independent toggles. The group is eligibility-configured like any other job (`enabled`, `type`, `species`).
+
+---
+
+## Breeding and scaling
+
+Efficiency is split into three independent axes. This is why breeding a worker is worth it:
+
+| Axis | What it does | Config keys |
+|------|--------------|-------------|
+| **Level** | Work **speed only**. Every Pokémon gains it by grinding. | `levelCap`, `levelWeight` |
+| **Base stat + IV + EV** | Work speed **and** extra-yield chance. This is the **breeding axis**. | `baseWeight`, `baseStatReference`, `ivWeight`, `evWeight`, `statBonusCap` |
+| **Nature** | Speed only: small bonus when it raises the job's stat, small penalty when it lowers it. | `natureBonus` |
+
+The base/IV/EV sum is capped by `statBonusCap` (default `0.30` = `baseWeight + ivWeight + evWeight`), so only a genuinely perfect breeder reaches the cap.
+
+> **Why not scale on the displayed stat?** `pokemon.getStat()` is level-scaled: a level-50+ Pokémon already saturates any such bonus, which makes IVs and EVs invisible. PastureWorkers therefore reads base stat, IV and EV directly.
+
+**Worked example** (defaults, `workIntervalTicks = 200`):
+
+| Worker | Level | Base | IV | EV | Nature | Speed efficiency | Action interval | Extra yield |
+|--------|-------|------|----|----|--------|------------------|-----------------|-------------|
+| Just caught | 20 | 70 | 10 | 0 | neutral | 11% | every 9.1 s | +7% |
+| Bred for the job | 50 | 110 | 31 | 252 | boosting | 46% | every 6.3 s | +26% |
+
+Extra yield is one duplicated drop item per cycle. Its chance comes from the **quality axis only**, rolled at `min(base+IV+EV contribution, maxExtraYieldChance)` — level never raises it.
+
+---
+
+## Virtual chest GUI
+
+### Opening
+- **Shift + right-click** a pasture block with an empty hand (`interaction.shiftRightClickGui`, default `true`).
+- **`/pastureworkers gui`** — searches up to 5 blocks from your crosshair, then 16 blocks around you.
+
+### What it shows
+
+| Area | Content |
+|------|---------|
+| Pasture info | Coordinates, **work area as a box** (radius 8 = 17×17), height, action interval, linked chest count, whether the area is **enclosed or open**, active/idle state, and per-job resource counts. |
+| Worker slots (up to 9) | Species, level, **every viable role with its scaling stat**, the base/IV/EV/nature contributions, the resulting action interval, speed multiplier and extra-yield chance. |
+| Controls | Toggle the scan-outline particles for yourself; reload the config (operators only); hook status indicator. |
+
+The GUI is **read-only**: every slot interaction is cancelled, so it is a diagnostic and control surface, not a container.
+
+Roles and target counts come from the same `JobSelection` source of truth as the manager and commands, so what you see is what the worker will actually do next.
+
+---
 
 ## Commands
 
@@ -81,152 +131,155 @@ All commands are under `/pastureworkers` and require **operator permission level
 
 | Command | Permission | Description |
 |---------|------------|-------------|
-| `/pastureworkers status` | Op level 2 | Shows tethered workers, cooldowns, scan cache, linked chests, watchdog status, and current radius/height/interval. |
-| `/pastureworkers radius` | Op level 2 | Displays a particle outline of the current scan cuboid (X/Z radius, Y height). |
-| `/pastureworkers reload` | Op level 2 | Reloads `pastureworkers.json` from disk, re-coerces all ranges. |
-| `/pastureworkers gui` | Any player | Opens the virtual chest GUI for the nearest pasture (requires `shiftRightClickGui: true` in config). |
+| `/pastureworkers status` | Op 2 | Tethered workers, cooldowns, scan cache, linked chests, hook status, radius/height/interval. |
+| `/pastureworkers radius` | Op 2 | Particle outline of the current scan cuboid. |
+| `/pastureworkers reload` | Op 2 | Reloads `pastureworkers.json` from disk and re-coerces all ranges. |
+| `/pastureworkers gui` | Any player | Opens the GUI for the nearest pasture. |
 
-## Virtual Chest GUI
-
-### Opening
-- **Shift + Right-click** a Cobblemon Pasture block with an empty hand (requires `interaction.shiftRightClickGui: true`, default `true`).
-- **Command**: `/pastureworkers gui` (searches up to 5 blocks from your crosshair, then 16-block radius around you).
-
-### Layout (9×3 = 27 slots)
-
-| Row | Slots | Content |
-|-----|-------|---------|
-| 0 (top) | 0–8 | **Slot 4**: Pasture Info (compass) — coordinates, radius, height, interval, chest count.<br>**Slot 8**: Toggle Radius Particles (lever) — click to show/hide scan outline for you only.<br>Others: gray glass panes (filler). |
-| 1 (middle) | 9–17 | **Worker slots** (up to 9) — each shows a player head with lore: species, level, **all viable roles** with valid targets, relevant stat value, efficiency %, bonus-drop chance %. |
-| 2 (bottom) | 18–26 | **Slot 18**: Reload Config (command block if op, barrier otherwise).<br>**Slot 20**: Watchdog Status (lime dye = active, red dye = hook not attached).<br>Others: filler. |
-
-### Read-only / Anti-theft
-- **All slots are display-only**. The screen handler cancels every slot interaction (`onSlotClick`, `quickMove`, `canInsertIntoSlot` all return empty/no-op).
-- Items cannot be taken, moved, inserted, or shift-clicked. The GUI is a diagnostic/control surface, not a container.
-
-**Unified job selection:** The GUI now lists **all** roles a Pokémon can currently perform with valid targets (via the single `JobSelection` source of truth shared by the manager, GUI, and commands). This fixes cases where a Pokémon with multiple eligible jobs (e.g., Combee) would only show the first registry match instead of every viable role.
+---
 
 ## Configuration
 
-PastureWorkers is configured through a single JSON file. **JSON has no comments**, so the explanations below are the documentation for every key.
+Single JSON file: `config/pastureworkers.json`, created on first run.
 
-**File location**: `config/pastureworkers.json` in the server/instance config folder (created on first run).
+**JSON cannot carry comments**, so the file documents itself in two ways:
 
-**Applying changes**: edit the file, then run `/pastureworkers reload` (op level 2) to reload it live, or restart the server. All numeric values are coerced to their valid ranges on load/save; `schemaVersion` (current `2`) is managed by the mod — do not edit it.
+- Every group has a `_comment` key with a one-line explanation.
+- `config/pastureworkers.readme.md` is rewritten on every load with a full key-by-key reference, the allowed `type` and `stat` values, and each job's current `type`/`stat`.
+
+**Applying changes:** edit the file and run `/pastureworkers reload` (op 2), or restart. Numeric values are coerced to their valid ranges on load/save. `schemaVersion` (currently `3`) is managed by the mod — do not edit it.
 
 ### `general`
 
-| Key | Default | Allowed range | Meaning |
-|-----|---------|---------------|---------|
+| Key | Default | Range | Meaning |
+|-----|---------|-------|---------|
 | `workIntervalTicks` | `200` | 20–1200 | Base ticks between a worker's actions. |
 | `blocksPerScanTick` | `512` | 64–4096 | Blocks scanned per server tick. |
-| `searchRadius` | `8` | 1–32 | Horizontal blocks searched around the pasture. |
-| `searchHeight` | `32` | 1–256 | Vertical blocks searched around the pasture. |
+| `searchRadius` | `8` | 1–32 | Horizontal radius searched around the pasture (8 → 17×17). |
+| `searchHeight` | `32` | 1–256 | Vertical blocks searched. |
 | `rescanCooldownTicks` | `1200` | 200–7200 | Ticks before the block cache is rescanned. |
-| `requireReachableSpace` | `true` | `true`/`false` | Only work the walkable space connected to the pasture; `false` scans the full box (legacy). |
+| `requireReachableSpace` | `true` | bool | Only work the walkable space connected to the pasture; `false` scans the full box (legacy). |
 
 ### `interaction`
 
-| Key | Default | Allowed range | Meaning |
-|-----|---------|---------------|---------|
-| `shiftRightClickGui` | `true` | `true`/`false` | Shift + right-click with an empty hand opens the GUI. |
+| Key | Default | Range | Meaning |
+|-----|---------|-------|---------|
+| `shiftRightClickGui` | `true` | bool | Shift + right-click with an empty hand opens the GUI. |
 | `guiOpenCooldownTicks` | `10` | ≥ 0 | Minimum ticks between GUI opens by the same player. |
 
 ### `scaling`
 
-All efficiency/timing formulas read from this group.
+All efficiency and timing formulas read from this group.
 
-| Key | Default | Allowed range | Meaning |
-|-----|---------|---------------|---------|
+| Key | Default | Range | Meaning |
+|-----|---------|-------|---------|
 | `levelCap` | `100` | 1–1000 | Level at which the level bonus stops growing. |
-| `levelWeight` | `0.20` | 0–1 | Max efficiency contributed by level. |
-| `statBaseline` | `70` | — | Stat value that gives zero stat bonus. |
-| `statDivisor` | `500` | ≥ 1 | How fast the stat bonus grows above/below the baseline. |
-| `statBonusCap` | `0.10` | 0–1 | Max ± bonus from the stat. |
-| `natureBonus` | `0.10` | 0–1 | Bonus for a nature boosting the job stat; the same amount is subtracted for a nature lowering it. |
-| `efficiencyCap` | `0.5` | 0–1 | Hard upper limit of efficiency. |
-| `intervalReduction` | `0.8` | 0–1 | How much efficiency shortens the action interval (`interval = workIntervalTicks * (1 - efficiency * intervalReduction)`). |
+| `levelWeight` | `0.20` | 0–1 | Max efficiency contributed by level (speed axis only). |
+| `baseWeight` | `0.10` | 0–1 | Max efficiency contributed by the species base stat. |
+| `baseStatReference` | `180` | ≥ 1 | Base stat value that maps to the full `baseWeight` bonus. |
+| `ivWeight` | `0.10` | 0–1 | Max efficiency contributed by a perfect (31) IV. |
+| `evWeight` | `0.10` | 0–1 | Max efficiency contributed by a maxed (252) EV. |
+| `statBonusCap` | `0.30` | 0–1 | Cap on base + IV + EV combined; by default equals `baseWeight + ivWeight + evWeight`. |
+| `natureBonus` | `0.10` | 0–1 | Added for a nature boosting the job stat, subtracted for one lowering it. |
+| `efficiencyCap` | `0.50` | 0–1 | Hard upper limit of efficiency. |
+| `intervalReduction` | `0.80` | 0–1 | How much efficiency shortens the interval: `workIntervalTicks * (1 - efficiency * intervalReduction)`. |
 | `minIntervalTicks` | `20` | 1–1200 | The interval never drops below this. |
-| `idleRetryDivisor` | `4` | ≥ 1 | When a worker has nothing to do it retries after `workIntervalTicks / idleRetryDivisor` ticks. |
-| `maxExtraYieldChance` | `0.5` | 0–1 | Chance of an extra copy of one drop equals `min(efficiency, this value)`. |
+| `idleRetryDivisor` | `4` | ≥ 1 | With nothing to do, a worker retries after `workIntervalTicks / idleRetryDivisor`. |
+| `maxExtraYieldChance` | `0.50` | 0–1 | Extra-drop chance is `min(quality contribution, this)`. |
 
 ### Job groups
 
 `cropHarvest`, `cropIrrigation`, `amethystHarvest`, `gemHarvest`, `apricornHarvest`, `berryHarvest`, `mintHarvest`, `netherwartHarvest`, `tumblestoneHarvest`, `honey`, `groundItemGather` share these keys:
 
-| Key | Default | Allowed range | Meaning |
-|-----|---------|---------------|---------|
-| `enabled` | `true` | `true`/`false` | Master switch; `false` removes the job everywhere. |
-| `type` | per job (below) | type name, e.g. `GRASS`, `WATER` | Required Pokémon type; blank = no type match. A Pokémon is eligible if its type **or** its species matches. |
-| `species` | `["ditto"]` | list of lowercase showdown names | Eligible species, e.g. `"ditto"`. |
-| `stat` | per job (below) | `HP`, `ATTACK`, `DEFENCE`, `SPECIAL_ATTACK`, `SPECIAL_DEFENCE`, `SPEED` | Cobblemon stat used for scaling; blank = the job default. Unknown names fall back to the job default with one warning in the log. |
-| `efficiencyMultiplier` | `1.0` | ≥ 0 | Multiplies the efficiency of this job only; the result is still capped by `efficiencyCap`. |
+| Key | Default | Range | Meaning |
+|-----|---------|-------|---------|
+| `enabled` | `true` | bool | Master switch; `false` removes the job everywhere. |
+| `type` | per job (below) | type name | Required Pokémon type; blank = no type match. A Pokémon is eligible if its type **or** its species matches. |
+| `species` | `["ditto"]` | lowercase showdown names | Additional eligible species. |
+| `stat` | per job (below) | `HP`, `ATTACK`, `DEFENCE`, `SPECIAL_ATTACK`, `SPECIAL_DEFENCE`, `SPEED` | Scaling stat; blank = the job default. Unknown names fall back to the default with one log warning. |
+| `efficiencyMultiplier` | `1.0` | ≥ 0 | Multiplies this job's efficiency only; still capped by `efficiencyCap`. |
 
-Per-job defaults for `type` / `stat`:
+Per-job defaults:
 
 | Group | `type` | `stat` |
 |-------|--------|--------|
 | `cropHarvest` | `GRASS` | `ATTACK` |
-| `cropIrrigation` | `WATER` | `DEFENCE` |
+| `cropIrrigation` | `WATER` | `SPECIAL_ATTACK` |
 | `amethystHarvest` | `ROCK` | `ATTACK` |
-| `gemHarvest` | `ROCK` | `ATTACK` |
-| `apricornHarvest` | `BUG` | `ATTACK` |
-| `berryHarvest` | `GRASS` | `SPECIAL_ATTACK` |
+| `gemHarvest` | `ROCK` | `DEFENCE` |
+| `apricornHarvest` | `BUG` | `SPEED` |
+| `berryHarvest` | `GRASS` | `SPECIAL_DEFENCE` |
 | `mintHarvest` | `FAIRY` | `SPECIAL_ATTACK` |
-| `netherwartHarvest` | `GHOST` | `ATTACK` |
-| `tumblestoneHarvest` | `STEEL` | `ATTACK` |
+| `netherwartHarvest` | `GHOST` | `SPECIAL_DEFENCE` |
+| `tumblestoneHarvest` | `STEEL` | `DEFENCE` |
 | `honey` | `BUG` | `SPEED` |
 | `groundItemGather` | `PSYCHIC` | `SPEED` |
 
-The `honey` group adds these keys:
+No job scales on `HP`: HP totals sit far above the other stats, so that axis would be systematically generous.
 
-| Key | Default | Allowed range | Meaning |
-|-----|---------|---------------|---------|
-| `honeycombPerHarvest` | `1` | ≥ 0 | Honeycomb produced per work cycle. |
-| `honeyBottlesPerHarvest` | `1` | ≥ 0 | Honey bottles produced per work cycle. |
-| `requireEmptyBottle` | `true` | `true`/`false` | Consumes one glass bottle from linked storage per honey bottle. |
-| `consumeFullHive` | `false` | `true`/`false` | Drains a full hive for one bonus honeycomb. |
-| `hiveProducesHoneycomb` | `true` | `true`/`false` | Produce honeycomb when a beehive/nest is in the reachable area. |
-| `flowerProducesHoneyBottles` | `true` | `true`/`false` | Produce honey bottles when flowers are in the reachable area. |
+The `honey` group adds:
+
+| Key | Default | Range | Meaning |
+|-----|---------|-------|---------|
+| `honeycombPerHarvest` | `1` | ≥ 0 | Honeycomb produced per cycle. |
+| `honeyBottlesPerHarvest` | `1` | ≥ 0 | Honey bottles produced per cycle. |
+| `requireEmptyBottle` | `true` | bool | Consumes one glass bottle from linked storage per honey bottle. |
+| `consumeFullHive` | `false` | bool | Drains a full hive for one bonus honeycomb. |
+| `hiveProducesHoneycomb` | `true` | bool | Produce honeycomb when a beehive/nest is in the area. |
+| `flowerProducesHoneyBottles` | `true` | bool | Produce honey bottles when flowers are in the area. |
 
 Default `honey` species: `combee`, `vespiquen`, `beedrill`, `teddiursa`, `ursaring`, `ribombee`.
 
-### Example
-
-To disable a job, set `enabled` to `false` — for example, a Slowpoke-type water job:
+### Example: disabling a job
 
 ```json
 { "cropIrrigation": { "enabled": false } }
 ```
 
-Note: Slowpoke (Water/Psychic) is eligible for `cropIrrigation` and `groundItemGather` by default because those jobs match by **type**. To exclude it, set `enabled` to `false` or change `type`/`species`.
+Note that Slowpoke (Water/Psychic) is eligible for `cropIrrigation` and `groundItemGather` by default because those jobs match by **type**. Set `enabled: false` or change `type`/`species` to exclude it.
 
-### Authoritative Storage Layer
+---
 
-PastureWorkers now resolves storage capability-first via the **Fabric Transfer API** (`ItemStorage.SIDED`), which auto-covers vanilla `Inventory`/`SidedInventory`/`InventoryProvider` and modded storage such as the Fabric Sophisticated Storage port, Tom's Simple Storage, and Storage Drawers. No new dependency is required — the Transfer API ships with Fabric API.
+## Storage deposits
 
-Deposits are **verified**: the mod snapshots the target's contents before and after each insert and trusts only the *actual* delta, not the inventory's success claim. This eliminates silent item loss (e.g., with Sophisticated Storage double chests). Anything not provably stored is ground-dropped at the pasture.
+Storage is resolved capability-first via the **Fabric Transfer API** (`ItemStorage.SIDED`), which covers vanilla inventories and modded storage such as the Fabric Sophisticated Storage port, Tom's Simple Storage and Storage Drawers. No extra dependency — the Transfer API ships with Fabric API.
 
-When the Transfer API is available, mutations run inside a committed outer transaction so items are only considered stored once the transaction succeeds.
+Deposits are **verified**: the mod snapshots the target before and after each insert and trusts only the *actual* delta, not the inventory's success claim. This eliminates silent item loss (e.g. Sophisticated Storage double chests). Anything not provably stored is dropped at the pasture.
 
-**Config schema versioning:** The config file includes a `schemaVersion` field. On upgrade, a small migration rebuilds legacy honey defaults (type/species) only when they were never changed by the user — genuine user edits are always preserved.
+When the Transfer API is available, mutations run inside a committed outer transaction.
 
-All numeric values are **coerced** to their valid ranges on load/save.
+---
 
-## Installation
+## Compared to the original Cobbleworkers
 
-**Requirements (server only):**
-- Fabric Loader ≥ 0.19.5
-- Fabric API
-- Fabric Language Kotlin
-- Cobblemon 1.8.1 (for Minecraft 1.21.1)
+| Feature | Cobbleworkers | PastureWorkers |
+|---------|---------------|----------------|
+| Movement | Vanilla navigation, workers walk to targets | **None** — virtual, no movement |
+| Pathfinding | Full vanilla pathfinder | **Removed** |
+| Vertical reach | Hard-coded 8 blocks | **Configurable** (`searchHeight`, default 32) |
+| Persistence | Not persisted | **Persisted** — cooldowns, scan state, sessions |
+| Config reload | Not supported | **`/pastureworkers reload`** |
+| GUI | ModMenu / Cloth Config client screen | **Server-side virtual chest GUI** |
+| Scaling | Basic | **Three axes** — level, base/IV/EV, nature |
+| Client requirement | Required | **None** — server-side only |
 
-**Clients do not need the mod.** PastureWorkers is fully server-side; vanilla clients can join and use the GUI (particles are server-spawned).
+---
 
-1. Install the above dependencies on your Fabric server.
-2. Drop `pastureworkers-1.0.0.jar` into the `mods/` folder.
-3. Start the server once to generate `config/pastureworkers.json`.
-4. Adjust config as desired, then `/pastureworkers reload` or restart.
+## FAQ
+
+**Do perfect IVs matter, or is it just level?**
+Both, on different axes: level only makes work faster, while base stat + IV + EV raise speed *and* extra-yield chance. See [Breeding and scaling](#breeding-and-scaling).
+
+**What is the work range?**
+A radius of `8` is a **17×17** box (`2 × radius + 1`), 32 blocks tall by default. The GUI shows the exact box for your pasture; `/pastureworkers radius` outlines it in particles.
+
+**Why do workers wander and then get yanked back?**
+That is Cobblemon's pasture recall, not this mod — workers never move on their own. It is more noticeable in an open farm, where the reachable area fills the whole search box. Fence the pasture to keep them contained.
+
+**Can I use it on a server where clients don't have the mod?**
+Yes. The mod is entirely server-side, including the GUI.
+
+---
 
 ## Build
 
@@ -234,19 +287,17 @@ All numeric values are **coerced** to their valid ranges on load/save.
 ./gradlew build
 ```
 
-Output: `build/libs/pastureworkers-1.0.0.jar` (name from `archives_base_name` + `mod_version`).
+Output: `build/libs/pastureworkers-1.1.0.jar`. Requires JDK 21.
 
-Requires JDK 21 (configured via toolchain).
+---
 
 ## License
 
 MPL-2.0 — see [LICENSE](LICENSE).
 
-## Credits & Attribution
+## Credits
 
-PastureWorkers is a **clean-room rewrite** based on the ideas and logical architecture of **Cobbleworkers** by **Accieo** (MPL-2.0).
-
-Original repository: https://github.com/Accieo/Cobbleworkers
+PastureWorkers is a **clean-room rewrite** based on the ideas and logical architecture of **Cobbleworkers** by **Accieo** (MPL-2.0): https://github.com/Accieo/Cobbleworkers
 
 ## Disclaimer
 

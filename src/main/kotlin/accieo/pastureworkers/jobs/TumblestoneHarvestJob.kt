@@ -24,7 +24,7 @@ import net.minecraft.world.World
 object TumblestoneHarvestJob : WorkJob {
 
     override val jobType = JobType.TUMBLESTONE_HARVEST
-    override val relevantStat = Stats.ATTACK
+    override val relevantStat = Stats.DEFENCE
     override val needsBlockTargets = true
 
     private val VALID_CLUSTERS = setOf(

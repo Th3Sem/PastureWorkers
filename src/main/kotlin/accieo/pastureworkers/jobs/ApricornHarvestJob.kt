@@ -25,7 +25,7 @@ import net.minecraft.world.World
 object ApricornHarvestJob : WorkJob {
 
     override val jobType = JobType.APRICORN_HARVEST
-    override val relevantStat = Stats.ATTACK
+    override val relevantStat = Stats.SPEED
     override val needsBlockTargets = true
 
     private val APRICORNS_TAG = TagKey.of(RegistryKeys.BLOCK, Identifier.of("cobblemon", "apricorns"))

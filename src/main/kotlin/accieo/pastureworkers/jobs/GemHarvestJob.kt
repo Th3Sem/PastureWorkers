@@ -27,7 +27,7 @@ import net.minecraft.world.World
 object GemHarvestJob : WorkJob {
 
     override val jobType = JobType.GEM_HARVEST
-    override val relevantStat = Stats.ATTACK
+    override val relevantStat = Stats.DEFENCE
     override val needsBlockTargets = true
 
     private val TYPE_GEM_CLUSTERS_TAG =

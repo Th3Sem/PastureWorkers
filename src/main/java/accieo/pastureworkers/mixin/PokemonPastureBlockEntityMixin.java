@@ -10,7 +10,6 @@
 package accieo.pastureworkers.mixin;
 
 import accieo.pastureworkers.PastureWorkers;
-import accieo.pastureworkers.core.HookStatus;
 import accieo.pastureworkers.core.PastureWorkManager;
 import com.cobblemon.mod.common.block.entity.PokemonPastureBlockEntity;
 import net.minecraft.block.BlockState;
@@ -26,13 +25,12 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 public class PokemonPastureBlockEntityMixin {
 
     // require = 0: if a future Cobblemon changes the synthetic ticker lambda, the mod degrades
-    // gracefully instead of failing at class-transformation time. HookStatus warns once if the
-    // hook never runs.
+    // gracefully instead of failing at class-transformation time. HookStatus.verify() warns at
+    // startup if the target is gone.
     @Inject(method = "TICKER$lambda$0", at = @At("TAIL"), require = 0)
     private static void onPastureTick(World world, BlockPos pos, BlockState state, PokemonPastureBlockEntity blockEntity, CallbackInfo ci) {
         if (world.isClient) return;
 
-        HookStatus.INSTANCE.markTickHookSeen();
         try {
             PastureWorkManager.INSTANCE.serverTick((ServerWorld) world, pos, blockEntity);
         } catch (Exception e) {

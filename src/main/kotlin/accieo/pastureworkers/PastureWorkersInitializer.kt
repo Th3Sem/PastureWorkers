@@ -15,7 +15,6 @@ import accieo.pastureworkers.core.HookStatus
 import accieo.pastureworkers.gui.PastureGui
 import accieo.pastureworkers.jobs.Jobs
 import net.fabricmc.api.ModInitializer
-import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents
 
 object PastureWorkersInitializer : ModInitializer {
 
@@ -24,7 +23,7 @@ object PastureWorkersInitializer : ModInitializer {
         Jobs.registerAll()
         Commands.register()
         PastureGui.register()
-        ServerTickEvents.END_SERVER_TICK.register { HookStatus.onServerTick() }
+        HookStatus.verify()
         PastureWorkers.LOGGER.info("[PastureWorkers] Initialised")
     }
 }
